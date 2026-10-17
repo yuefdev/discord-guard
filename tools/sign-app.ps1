@@ -6,6 +6,9 @@ param(
     [string]$TimestampUrl='https://timestamp.digicert.com'
 )
 $ErrorActionPreference='Stop'
+foreach ($name in @('Microsoft.PowerShell.Security','Microsoft.PowerShell.Utility')) {
+    Import-Module -Name ([IO.Path]::Combine($PSHOME, "Modules\$name\$name.psd1")) -Force -ErrorAction Stop
+}
 if (-not (Test-Path -LiteralPath $Artifact -PathType Leaf)) { throw 'Artifact not found.' }
 if (-not (Test-Path -LiteralPath $SignTool -PathType Leaf)) { throw 'Supply the SDK signtool.exe path.' }
 if ([IO.Path]::GetExtension($Artifact) -notin @('.exe','.dll','.cab','.cat')) { throw 'Use Microsoft dashboard signing for the kernel SYS; this tool signs publisher artifacts only.' }

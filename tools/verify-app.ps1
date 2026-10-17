@@ -4,6 +4,11 @@ param(
     [Parameter(Mandatory=$true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version
 )
 $ErrorActionPreference = 'Stop'
+# A PowerShell 7 parent can pass its module path to Windows PowerShell 5.1.
+# Resolve signature/hash commands from this host's modules, not the inherited path.
+foreach ($name in @('Microsoft.PowerShell.Security','Microsoft.PowerShell.Utility')) {
+    Import-Module -Name ([IO.Path]::Combine($PSHOME, "Modules\$name\$name.psd1")) -Force -ErrorAction Stop
+}
 if (-not (Test-Path -LiteralPath $Artifact -PathType Leaf)) { throw 'Signed artifact not found.' }
 if ((Get-Item -LiteralPath $Artifact -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Redirected signed artifact refused.' }
 $signature = Get-AuthenticodeSignature -LiteralPath $Artifact

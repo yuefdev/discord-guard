@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -74,9 +75,9 @@ class WindowsNativeTests(unittest.TestCase):
         encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
         root = Path(__file__).resolve().parents[1]
         scripts = [windows.script_path(name) for name in ("inspect", "provision", "uninstall", "verify-installer",
-                                                         "provision-desktop", "uninstall-desktop")]
+                                                         "provision-desktop", "uninstall-desktop", "replace-discord")]
         scripts += [root / "native" / name for name in ("install-vm.ps1", "remove-vm.ps1")]
-        scripts += [root / "tools" / name for name in ("sign-app.ps1", "verify-driver.ps1", "check-defender.ps1")]
+        scripts += [root / "tools" / name for name in ("sign-app.ps1", "verify-app.ps1", "verify-driver.ps1", "check-defender.ps1")]
         for script in scripts:
             with self.subTest(script=script.name):
                 result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
@@ -84,6 +85,19 @@ class WindowsNativeTests(unittest.TestCase):
                     text=True, encoding="utf-8", timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)["errors"], [])
+
+    def test_publisher_verifier_rejects_unsigned_file_without_running_it(self):
+        script = Path(__file__).resolve().parents[1] / "tools" / "verify-app.ps1"
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "DiscordGuard.exe"
+            binary.write_bytes(b"inert unsigned fixture; never executed")
+            result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-File", str(script),
+                "-Artifact", str(binary), "-CertificateThumbprint", "0" * 40, "-Version", "0.8.0"],
+                capture_output=True, text=True, encoding="utf-8", timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not trusted", result.stderr)
+            self.assertEqual(binary.read_bytes(), b"inert unsigned fixture; never executed")
 
     def test_atomic_directory_helper_compiles_without_creating_directories(self):
         source = windows.script_path("provision").read_text(encoding="utf-8")

@@ -76,6 +76,49 @@ def decode_state(entry: Entry | None) -> dict | None:
         raise StartupError("Otomatik açılışın geri dönüş kaydı doğrulanamadı; mevcut ayarlar korunuyor.") from None
 
 
+def _apply_changes(store, original: dict, changes: list) -> None:
+    changed = []
+    try:
+        for key, name, entry in changes:
+            changed.append((key, name))
+            store.write(key, name, entry)
+    except Exception as error:
+        rollback_failed = False
+        for key, name in reversed(changed):
+            try:
+                store.write(key, name, original[(key, name)])
+            except Exception:
+                rollback_failed = True
+        message = "Başlangıç ayarı tamamlanamadı."
+        message += " Geri dönüş eksik kaldı; Windows Başlangıç Uygulamaları’nı kontrol edin." if rollback_failed else " Önceki ayarlar geri yüklendi."
+        raise StartupError(message) from error
+
+
+def retire_discord(store, command: str, expected_updater: str, *, validate_only=False) -> None:
+    """Retire an uninstalled client's startup without restoring a dead updater later."""
+    locations = ((RUN_KEY, GUARD_VALUE), (RUN_KEY, "Discord"), (STATE_KEY, STATE_VALUE))
+    original = {location: store.read(*location) for location in locations}
+    guard, discord, saved = (original[location] for location in locations)
+    state = decode_state(saved)
+    if guard is not None and guard != Entry(command):
+        raise StartupError("DiscordGuard başlangıç girdisi başka bir komuta ait; geçiş durduruldu.")
+    if discord is not None and not is_official_startup(discord, expected_updater):
+        raise StartupError("Discord başlangıç girdisi standart değil; eski uygulama kaldırılmadı.")
+    if state is not None:
+        if state["command"] != command or (state["discord"] is not None and
+                not is_official_startup(Entry(**state["discord"]), expected_updater)):
+            raise StartupError("Başlangıç geri dönüş kaydı bu kuruluma ait değil; geçiş durduruldu.")
+    if validate_only:
+        return
+    changes = []
+    if discord is not None:
+        changes.append((RUN_KEY, "Discord", None))
+    if state is not None and state["discord"] is not None:
+        state["discord"] = None
+        changes.append((STATE_KEY, STATE_VALUE, Entry(json.dumps(state))))
+    _apply_changes(store, original, changes)
+
+
 def configure(store, command: str, expected_updater: str, *, enabled: bool) -> dict:
     locations = ((RUN_KEY, GUARD_VALUE), (RUN_KEY, "Discord"), (STATE_KEY, STATE_VALUE))
     original = {location: store.read(*location) for location in locations}
@@ -99,37 +142,22 @@ def configure(store, command: str, expected_updater: str, *, enabled: bool) -> d
     # Do not overwrite a new Discord startup setting when undoing our own change.
     if not enabled and discord is not None and previous is not None and discord != previous:
         raise StartupError("Discord başlangıcı sonradan değiştirilmiş. Mevcut ayar ve geri dönüş kaydı korundu.")
-    changed = []
-
-    def write(key, name, entry):
-        changed.append((key, name))
-        store.write(key, name, entry)
-
-    try:
-        if enabled:
-            if state is None:
-                state = {"version": 1, "command": command, "discord":
-                         {"value": discord.value, "kind": discord.kind} if discord is not None else None}
-                write(STATE_KEY, STATE_VALUE, Entry(json.dumps(state)))
-            write(RUN_KEY, GUARD_VALUE, expected_guard)
-            if discord is not None:
-                write(RUN_KEY, "Discord", None)
-        else:
-            if guard is not None:
-                write(RUN_KEY, GUARD_VALUE, None)
-            if discord is None and previous is not None:
-                write(RUN_KEY, "Discord", previous)
-            if saved is not None:
-                write(STATE_KEY, STATE_VALUE, None)
-    except Exception as error:
-        rollback_failed = False
-        for key, name in reversed(changed):
-            try:
-                store.write(key, name, original[(key, name)])
-            except Exception:
-                rollback_failed = True
-        message = "Başlangıç ayarı tamamlanamadı."
-        message += " Geri dönüş eksik kaldı; Windows Başlangıç Uygulamaları’nı kontrol edin." if rollback_failed else " Önceki ayarlar geri yüklendi."
-        raise StartupError(message) from error
+    changes = []
+    if enabled:
+        if state is None:
+            state = {"version": 1, "command": command, "discord":
+                     {"value": discord.value, "kind": discord.kind} if discord is not None else None}
+            changes.append((STATE_KEY, STATE_VALUE, Entry(json.dumps(state))))
+        changes.append((RUN_KEY, GUARD_VALUE, expected_guard))
+        if discord is not None:
+            changes.append((RUN_KEY, "Discord", None))
+    else:
+        if guard is not None:
+            changes.append((RUN_KEY, GUARD_VALUE, None))
+        if discord is None and previous is not None:
+            changes.append((RUN_KEY, "Discord", previous))
+        if saved is not None:
+            changes.append((STATE_KEY, STATE_VALUE, None))
+    _apply_changes(store, original, changes)
     return {"enabled": enabled, "discord_startup_paused": enabled and discord is not None,
             "discord_startup_restored": not enabled and discord is None and previous is not None}

@@ -12,7 +12,7 @@ $restore = 'Registry::HKEY_USERS\' + $policy.origin_sid + '\Software\DiscordGuar
 if (-not (Test-Path -LiteralPath ('Registry::HKEY_USERS\' + $policy.origin_sid))) { throw 'Sign into the installing user before removal.' }
 if ((Get-ItemProperty -LiteralPath $run -Name DiscordGuard -ErrorAction SilentlyContinue) -or
     (Get-ItemProperty -LiteralPath $restore -Name RestoreState -ErrorAction SilentlyContinue)) {
-    throw 'First disable checked startup in DiscordGuard to restore the previous Discord startup setting.'
+    throw 'First disable checked startup in DiscordGuard. An uninstalled Discord startup entry is not restored.'
 }
 Write-Host 'Close private Discord and DiscordGuard first. Service removal retains Discord login data.'
 if ((Read-Host 'Type REMOVE to remove the launcher and services') -cne 'REMOVE') { return }
@@ -20,6 +20,13 @@ $identity = [Security.Principal.NTAccount]::new('NT SERVICE','DiscordGuardIdenti
 foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='Discord.exe'")) {
     $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
     if ($owner.Sid -eq $identity) { throw 'Close the private Discord process before uninstalling.' }
+}
+$replacementKey = 'Registry::HKEY_USERS\' + $policy.origin_sid + '\Software\DiscordGuard\Replacement'
+if (Get-ItemProperty -LiteralPath $replacementKey -Name State -ErrorAction SilentlyContinue) {
+    $cleanupScript = Join-Path $program 'ReplaceDiscord.ps1'
+    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{origin_sid=$policy.origin_sid} | ConvertTo-Json -Compress)))
+    $cleanup = & $cleanupScript -ConfigBase64 $payload -RemoveShortcuts | ConvertFrom-Json
+    if (-not $cleanup -or $cleanup.ok -ne $true) { throw 'Replacement shortcut cleanup failed; launcher and services were retained.' }
 }
 foreach ($name in @('DiscordGuardDesktop','DiscordGuardIdentity')) {
     $service = Get-Service -Name $name -ErrorAction SilentlyContinue
@@ -35,4 +42,4 @@ $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'DiscordG
 if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -Force }
 Remove-Item -LiteralPath $data -Recurse -Force
 Remove-Item -LiteralPath $program -Recurse -Force
-Write-Host 'Services removed. The private Windows service profile and Discord data were retained.'
+Write-Host 'Services and owned replacement shortcuts removed. Private Discord data was retained. The old application was not reinstalled.'

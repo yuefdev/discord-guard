@@ -5,6 +5,9 @@ Use your existing Discord account. Version 0.8 uses a **Windows-managed virtual
 service identity on your current desktop**. The Turkish interface uses PySide6/Qt. Original code is
 MIT-licensed; see `THIRD_PARTY_NOTICES.md` for dependency terms.
 
+[Code signing policy](docs/CODE-SIGNING.md): signing preparation is available;
+no trusted certificate, provider approval or signed release is claimed yet.
+
 ## Automatic setup on the same desktop (0.8, unpublished)
 
 **Distribution blocked:** Windows Defender classified the local 0.8 launcher as
@@ -19,6 +22,13 @@ identity and a local broker. There is no new Windows password to enter and no
 account switching. The broker downloads and verifies the official Discord
 installer and opens Discord on the current desktop under its private identity.
 Your first Discord sign-in remains yours; existing tokens are never copied.
+
+After a fresh service query confirms private Discord is installed and running,
+the original user's stable Discord is removed using its signed official
+uninstaller. Recognised per-user Start menu, desktop and taskbar shortcuts are
+redirected through DiscordGuard. Startup handover respects the startup checkbox;
+an uninstalled updater is never restored when checked startup is disabled.
+Canary, PTB and other users' installations are outside this replacement.
 
 Before launch, a harmless process under the private identity checks DPAPI, and
 the caller must receive access denied when opening its dummy file and process
@@ -36,6 +46,19 @@ are backed up during automatic migration; the old account and its data remain.
 Version 0.6.1 restores and raises the existing window when opened again. Each
 Windows user/session keeps one main window; repeat launches no longer accumulate
 background copies. Account setup uses a separate window channel.
+
+### First sign-in and later launches
+
+If your phone is already signed into Discord, scan the QR code shown by the
+private desktop Discord using the mobile Discord app and approve the login.
+Otherwise, sign in through Discord's own login screen.
+
+Later launches reuse the same private profile; the uninstaller retains it.
+This does not guarantee an indefinite session: Discord may require sign-in again,
+and restart/reinstallation persistence still needs runtime acceptance testing.
+Uninstalling the old application does not revoke its Discord session. After
+confirming the private login works, use Discord's **User Settings → Devices** to
+revoke the relevant old session.
 
 ## Legacy separate-account mode (0.7)
 

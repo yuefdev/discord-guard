@@ -47,7 +47,9 @@ def present(snapshot: dict) -> Dashboard:
         return Dashboard("desktop", "ÖZEL SERVİS KİMLİĞİ HAZIR", "Discord’un. Aynı masaüstünde.",
             "Dosyalar ve çalışan işlem ayrı Windows servis kimliğinde. Hesap değiştirmen gerekmez.",
             "Korumalı Discord’u aç" if installed else "Discord’u otomatik kur ve aç",
-            "İlk Discord girişi sana ait. Aynı masaüstündeki klavye ve ekran kaydı bu sınırın dışında.", True)
+            "Giriş istenirse Discord’daki QR kodunu telefonundaki Discord ile tara. "
+            "Korumalı açılış doğrulanınca eski Discord kaldırılır ve kısayollar devralınır. "
+            "Klavye ve ekran kaydı bu sınırın dışında.", True)
     if not policy:
         residue = any(snapshot.get("system_acls", {}).get(key, {}).get("exists") is True
                       for key in ("program_dir", "data_dir", "policy")) or bool(snapshot.get("account"))
@@ -57,7 +59,8 @@ def present(snapshot: dict) -> Dashboard:
                 "Yeniden kontrol et", "Mevcut hesabın üzerine yazılmaz. Ayrıntılardaki kurulum denetimlerini incele.", False)
         return Dashboard("setup", "OTOMATİK KURULUM", "Tek onayla hazırlanır.",
             "Discord için özel arka plan servisi kurulur. Hesap değiştirme ve Windows parolası yok.",
-            "Tek tıkla kur ve aç", "Bir Windows yönetici onayı gerekir. Resmî Discord otomatik indirilir.", False)
+            "Tek tıkla kur ve aç", "Bir Windows yönetici onayı gerekir. Yeni Discord açıldıktan sonra eski uygulama kaldırılır; "
+            "ilk girişte telefonundaki Discord ile QR kodunu tarayabilirsin.", False)
     if not policy_is_valid(policy):
         return Dashboard("blocked", "POLİTİKA DOĞRULANAMADI", "Kurulumu kontrol et.",
             "Korumalı hesabın kimliği doğrulanamadı.", "Yeniden kontrol et",
@@ -69,7 +72,8 @@ def present(snapshot: dict) -> Dashboard:
         if all(check.passed for check in decision.checks if check.key in trusted):
             return Dashboard("upgrade", "OTOMATİK KULLANIMA GEÇ", "Hesap değiştirme bitti.",
                 "Eski kurulum yedeklenerek aynı masaüstünde çalışan özel servis kurulacak.",
-                "Otomatik kullanıma geçir", "Bir Windows onayı gerekir. Eski hesap ve Discord verileri silinmez.", False)
+                "Otomatik kullanıma geçir", "Bir Windows onayı gerekir. Korumalı Discord açılınca ana hesaptaki eski uygulama kaldırılır; "
+                "eski Windows hesabı ve verileri korunur.", False)
     if current.get("sid") != policy["guard_sid"] or current.get("session_sid") != policy["guard_sid"]:
         required = {"windows", "installed", "policy_acl", "account", "switching"}
         failed = [check for check in decision.checks if check.key in required and not check.passed]

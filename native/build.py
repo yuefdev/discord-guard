@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import urllib.request
 import zipfile
 
@@ -102,9 +103,14 @@ def build(output, wdk_root=None):
          f"/Fe:{output / 'GuardCoreCtl.exe'}", "/link", *libflags,
          "advapi32.lib", "fltlib.lib", "wtsapi32.lib", "userenv.lib", "wintrust.lib", "crypt32.lib"],
         cwd=output, env=env)
+    resource = output / "DiscordGuardSession.rc"
+    run([sys.executable, "-B", ROOT.parent / "tools" / "version_info.py", "--filename", "DiscordGuardSession.exe",
+         "--format", "rc", "--output", resource], cwd=output, env=env)
+    run([sdk / "bin" / sdk_version / "x64" / "rc.exe", "/nologo", f"/fo{output / 'DiscordGuardSession.res'}", resource],
+        cwd=output, env=env)
     run([cl, "/nologo", "/EHsc", "/W4", "/WX", "/std:c++17", "/DUNICODE", "/D_UNICODE", *inc,
          ROOT / "desktop" / "session.cpp", f"/Fo:{output / 'DiscordGuardSession.obj'}",
-         f"/Fe:{output / 'DiscordGuardSession.exe'}", "/link", *libflags,
+         f"/Fe:{output / 'DiscordGuardSession.exe'}", "/link", *libflags, output / "DiscordGuardSession.res",
          "advapi32.lib", "wtsapi32.lib", "userenv.lib", "wintrust.lib", "crypt32.lib", "winhttp.lib",
          "user32.lib", "shell32.lib", "ole32.lib"], cwd=output, env=env)
     artifacts = [output / "GuardCore.sys", output / "GuardCoreCtl.exe", output / "GuardCore.pdb", output / "policy_tests.exe",

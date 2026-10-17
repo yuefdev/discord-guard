@@ -1,4 +1,4 @@
-"""Produce an explicitly experimental, unsigned preview plus complete application source."""
+"""Produce an experimental preview, with optional verified publisher signatures."""
 
 import argparse
 import hashlib
@@ -13,6 +13,10 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools.version_info import render
+
 SOURCE_DIRS = ("src", "tests", "native", "tools", "docs", ".github")
 SOURCE_FILES = ("README.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.md",
                 "requirements-build.txt", "pyproject.toml", "build.ps1", ".gitignore")
@@ -27,7 +31,8 @@ def source_files(root=ROOT):
         for path in (root / directory).rglob("*"):
             if path.is_file() and not path.is_symlink() and not any(
                     piece in ("__pycache__", "build", "dist", ".pytest_cache") for piece in path.parts) \
-                    and path.suffix not in (".pyc", ".pfx", ".key", ".pem", ".sys", ".exe", ".nupkg"):
+                    and path.name != ".env" and not path.name.startswith(".env.") \
+                    and path.suffix.lower() not in (".pyc", ".pfx", ".p12", ".key", ".pem", ".sys", ".exe", ".nupkg"):
                 yield path
 
 
@@ -39,23 +44,28 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def build_setup(staging: Path, output: Path, version: str) -> Path:
+def build_setup(staging: Path, output: Path, version: str, *, certificate_thumbprint=None, signtool=None) -> Path:
     manifest = {path.relative_to(staging).as_posix(): sha256(path)
                 for path in sorted(staging.rglob("*")) if path.is_file()}
     (staging / "payload-sha256.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     name = f"DiscordGuard-{version}-Setup"
     work = output / "setup-build"
+    work.mkdir(exist_ok=True)
+    version_file = work / "setup.version"
+    version_file.write_text(render(name + ".exe", "pyinstaller"), encoding="ascii")
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
-                    "--name", name, "--distpath", str(output), "--workpath", str(work / "build"),
+                    "--name", name, "--version-file", str(version_file), "--distpath", str(output), "--workpath", str(work / "build"),
                     "--specpath", str(work / "spec"), "--exclude-module", "PySide6",
                     "--add-data", f"{staging};payload", str(ROOT / "tools/setup_bootstrap.py")], check=True)
     installer = output / f"{name}.exe"
+    if certificate_thumbprint:
+        sign_publisher_artifact(installer, certificate_thumbprint, signtool, version)
     defender_scan(installer)
     subprocess.run([str(installer), "--smoke-test"], check=True, timeout=180)
     return installer
 
 
-def defender_scan(path: Path):
+def powershell_path() -> Path:
     import ctypes
     from ctypes import wintypes
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -64,12 +74,44 @@ def defender_scan(path: Path):
     size = kernel.GetWindowsDirectoryW(buffer, len(buffer))
     if not size or size >= len(buffer):
         raise ValueError("Windows scanner path could not be established")
-    powershell = Path(buffer.value) / "System32/WindowsPowerShell/v1.0/powershell.exe"
-    subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-File",
+    return Path(buffer.value) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+
+
+def defender_scan(path: Path):
+    subprocess.run([str(powershell_path()), "-NoProfile", "-NonInteractive", "-File",
                     str(ROOT / "tools/check-defender.ps1"), "-Artifact", str(path)], check=True)
 
 
-def package(app: Path, native: Path, output: Path):
+def validate_signing(certificate_thumbprint, signtool):
+    if certificate_thumbprint is None and signtool is None:
+        return
+    if not certificate_thumbprint or not re.fullmatch(r"[A-Fa-f0-9]{40}", certificate_thumbprint) or \
+            signtool is None or not signtool.is_file():
+        raise ValueError("Signed candidates require a real certificate thumbprint and an existing SDK signtool.exe")
+
+
+def verify_publisher_artifact(path: Path, certificate_thumbprint: str, version: str) -> dict:
+    result = subprocess.run([str(powershell_path()), "-NoProfile", "-NonInteractive", "-File",
+        str(ROOT / "tools/verify-app.ps1"), "-Artifact", str(path),
+        "-CertificateThumbprint", certificate_thumbprint, "-Version", version],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    proof = json.loads(result.stdout.lstrip("\ufeff"))
+    if proof.get("valid") is not True or proof.get("timestamped") is not True or \
+            proof.get("certificate_thumbprint", "").lower() != certificate_thumbprint.lower() or \
+            proof.get("product") != "DiscordGuard" or proof.get("version") != version or proof.get("sha256") != sha256(path):
+        raise ValueError("Publisher signature proof does not match the final artifact")
+    return proof
+
+
+def sign_publisher_artifact(path: Path, certificate_thumbprint: str, signtool: Path, version: str):
+    subprocess.run([str(powershell_path()), "-NoProfile", "-NonInteractive", "-File",
+        str(ROOT / "tools/sign-app.ps1"), "-Artifact", str(path),
+        "-CertificateThumbprint", certificate_thumbprint, "-SignTool", str(signtool)], check=True)
+    return verify_publisher_artifact(path, certificate_thumbprint, version)
+
+
+def package(app: Path, native: Path, output: Path, *, certificate_thumbprint=None, signtool=None):
+    validate_signing(certificate_thumbprint, signtool)
     version_text = (ROOT / "src/discord_guard/__init__.py").read_text(encoding="utf-8")
     version = re.search(r'__version__ = "([0-9.]+)"', version_text)[1]
     if not app.is_dir() or not (app / "DiscordGuard.exe").is_file() or not (app / "_internal").is_dir():
@@ -92,6 +134,12 @@ def package(app: Path, native: Path, output: Path):
     staging.mkdir()
     shutil.copytree(app, staging / "app")
     shutil.copy2(native / "DiscordGuardSession.exe", staging / "app" / "DiscordGuardSession.exe")
+    signed_files = {}
+    if certificate_thumbprint:
+        for name in ("DiscordGuard.exe", "DiscordGuardSession.exe"):
+            path = staging / "app" / name
+            signed_files[name] = sign_publisher_artifact(path, certificate_thumbprint, signtool, version)
+        defender_scan(staging / "app")
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md"):
         shutil.copy2(ROOT / name, staging / name)
         shutil.copy2(ROOT / name, staging / "app" / name)
@@ -122,6 +170,8 @@ def package(app: Path, native: Path, output: Path):
               "Run app\\DiscordGuard.exe, or download the Setup.exe asset for guided installation.\n"
               "Approve UAC once. A Windows-managed virtual service identity runs Discord on your current desktop.\n"
               "No Windows password or account switch. Your first Discord sign-in remains manual.\n"
+              "After verified private launch, the original user's stable Discord is removed by its official uninstaller.\n"
+              "Recognised shortcuts use checked launch. Uninstalling an application does not revoke its old Discord session.\n"
               "Private file/process fixture checks are mandatory. Shared-desktop input and screen capture remain outside this boundary.\n"
               "GuardCore is separate, unsigned and VM-only; no driver is installed by this app.\n"
               "See SECURITY.md, source docs/RELEASING.md and native/README.md.\n")
@@ -131,7 +181,11 @@ def package(app: Path, native: Path, output: Path):
         for path in sorted(source_files()):
             archive.write(path, path.relative_to(ROOT).as_posix())
     shutil.copy2(source_zip, staging / "app" / "source.zip")
-    installer = build_setup(staging, output, version)
+    installer = build_setup(staging, output, version, certificate_thumbprint=certificate_thumbprint, signtool=signtool)
+    if certificate_thumbprint:
+        signed_files[installer.name] = verify_publisher_artifact(installer, certificate_thumbprint, version)
+        for name in ("DiscordGuard.exe", "DiscordGuardSession.exe"):
+            signed_files[name] = verify_publisher_artifact(staging / "app" / name, certificate_thumbprint, version)
     app_zip = output / f"DiscordGuard-{version}-preview-windows-x64.zip"
     with zipfile.ZipFile(app_zip, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(staging.rglob("*")):
@@ -141,7 +195,8 @@ def package(app: Path, native: Path, output: Path):
     shutil.copy2(native / "GuardCore-lab.zip", native_zip)
     artifacts = [source_zip, app_zip, native_zip, installer]
     (output / "SHA256SUMS.txt").write_text("".join(f"{sha256(path)}  {path.name}\n" for path in artifacts), encoding="ascii")
-    manifest = {"version": version, "channel": "experimental-preview", "app_signed": False,
+    manifest = {"version": version, "channel": "experimental-preview", "app_signed": bool(signed_files),
+                  "installer_signed": bool(signed_files), "publisher_signatures": signed_files,
                  "driver_signed": False, "driver_runtime_validated": False, "active_rat_protection_claimed": False,
                  "requires_isolated_session": False, "requires_private_identity": True,
                  "default_backend": "desktop_service", "installer_smoke_tested": True,
@@ -156,5 +211,8 @@ if __name__ == "__main__":
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--certificate-thumbprint", help="Real CurrentUser code-signing certificate; optional for an experimental signed candidate")
+    parser.add_argument("--signtool", type=Path, help="Windows SDK signtool.exe path; required with --certificate-thumbprint")
     args = parser.parse_args()
-    package(args.app.resolve(), args.native.resolve(), args.output.resolve())
+    package(args.app.resolve(), args.native.resolve(), args.output.resolve(),
+            certificate_thumbprint=args.certificate_thumbprint, signtool=args.signtool.resolve() if args.signtool else None)

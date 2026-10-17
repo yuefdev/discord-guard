@@ -7,9 +7,11 @@ spec/
 *.egg-info/
 .venv/
 *.pfx
+*.p12
 *.pem
 *.key
 *.pdb
 *.sys
 *.cab
 .env
+.env.*

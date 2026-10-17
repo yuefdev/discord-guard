@@ -327,7 +327,8 @@ class GuardWindow(QMainWindow, WorkMixin):
         def complete(result):
             self.render(result["snapshot"])
             if result["opened"]:
-                self.set_message("Discord özel servis kimliğiyle aynı masaüstünde açıldı." if result["state"].mode == "desktop"
+                self.set_message("Discord özel servis kimliğiyle aynı masaüstünde açıldı. " + result["state"].detail
+                    if result["state"].mode == "desktop"
                     else "Discord korumalı Windows oturumunda açıldı. Erişim sınırı Windows tarafından uygulanıyor.")
 
         enable_startup = self.startup_choice.isChecked()
@@ -345,7 +346,8 @@ class GuardWindow(QMainWindow, WorkMixin):
         items = QVBoxLayout(body)
         items.setSpacing(14)
         items.addWidget(label("Gerçek koruma durumu", "brand"))
-        items.addWidget(label(experience.present(self.snapshot).detail, "muted", wrap=True))
+        state = experience.present(self.snapshot)
+        items.addWidget(label(state.detail, "muted", wrap=True))
         client = self.snapshot.get("installed_discord") or {}
         if client.get("path"):
             path = label(client["path"], "muted", wrap=True)
@@ -358,6 +360,20 @@ class GuardWindow(QMainWindow, WorkMixin):
         items.addWidget(label("Windows servis kimliğinin parolasını Windows yönetir. Discord’un dosya ve işlem erişimi ayrılır; "
                               "klavye, ekran ve pano aynı masaüstünde paylaşılır." if automatic else
                               "Bu eski kurulum ayrı Windows hesabı kullanıyor. Yeni otomatik kurulumdan önce geçişi değerlendir.", "muted", wrap=True))
+        if automatic or state.mode == "upgrade":
+            items.addWidget(label("İlk giriş ve oturumun korunması", "value"))
+            items.addWidget(label("Telefondaki Discord hesabın açıksa, korumalı Discord’un resmî giriş ekranındaki QR kodunu "
+                                  "telefonundaki Discord ile tara ve girişi onayla. Telefonda oturumun yoksa Discord’un "
+                                  "kendi giriş ekranından normal giriş yap.", "muted", wrap=True))
+            items.addWidget(label("Sonraki açılışlar aynı özel Windows profilini kullanır. Kaldırıcı bu profili ve Discord "
+                                  "verilerini silmez. Bu, süresiz oturum garantisi değildir; Discord yeniden giriş "
+                                  "isteyebilir.", "muted", wrap=True))
+            items.addWidget(label("Korumalı Discord’un açıldığı doğrulanınca ana Windows hesabındaki eski kararlı Discord, "
+                                  "resmî kaldırıcıyla kaldırılır. Standart Başlat menüsü, masaüstü ve görev çubuğu "
+                                  "kısayolları DiscordGuard üzerinden açılır. Kaldırma başarısızsa geçiş tamamlandı denmez.", "muted", wrap=True))
+            items.addWidget(label("Uygulamayı kaldırmak Discord’daki eski oturumu iptal etmez. Yeni girişinin çalıştığını "
+                                  "doğruladıktan sonra Kullanıcı Ayarları → Cihazlar bölümünden ilgili eski oturumu "
+                                  "sonlandır.", "muted", wrap=True))
         buttons = QHBoxLayout()
         actions = (("Otomatik servisi kur", self.setup), ("Discord’u aç", self.activate)) if automatic else (
             ("Windows giriş ekranı", self.switch), ("Resmî Discord’u kur", self.install_discord))

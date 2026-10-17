@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from discord_guard import experience, windows
 from discord_guard.core import decide
 from test_security import HOST, GUARD, ready, safe_acl
+from test_startup import Store
 
 
 def desktop_ready():
@@ -55,9 +56,19 @@ class DesktopServiceTests(unittest.TestCase):
         state = desktop_ready()
         proof = {"available": True, "error": 0, "file_denied": 1, "memory_denied": 1}
         launched = {"available": True, "error": 0, "running": 1}
+        confirmed = desktop_ready()
+        confirmed["desktop_service"].update(installed=1, running=1)
+        snapshots = iter((state, confirmed))
         start = Mock()
-        with patch.object(windows, "desktop_command", side_effect=[proof, launched]) as command:
-            self.assertEqual(windows.launch(paths=Mock(), inspector=lambda _: state, popen=start), launched)
+        paths = windows.Paths(Path("C:/Program Files"), Path("C:/ProgramData"), Path("C:/Start"),
+                              Path("C:/Users/User/AppData/Local"), Path("C:/Users/User/AppData/Roaming"))
+        with patch.object(windows, "desktop_command", side_effect=[proof, launched]) as command, \
+                patch.object(sys, "frozen", True, create=True), \
+                patch.object(windows.startup, "RegistryStore", return_value=Store()), \
+                patch.object(windows, "run_script", return_value={"ok": True, "replaced": True}) as replace:
+            self.assertEqual(windows.launch(paths=paths, inspector=lambda _: next(snapshots), popen=start), launched)
+        replace.assert_called_once()
+        self.assertEqual(replace.call_args.args[0], "replace-discord")
         self.assertEqual([call.args[1] for call in command.call_args_list], ["--verify-boundary", "--launch"])
         start.assert_not_called()
 

@@ -23,6 +23,10 @@ contact without posting exploit details publicly.
 - Before launching, the client requires denial of a harmless fixture read and
   process-memory open, plus a successful DPAPI round-trip inside the private
   identity. These probes are not a complete Discord or malware acceptance test.
+- Once private launch is verified, the origin user's stable Discord application
+  is removed by its signature-checked official uninstaller. Recognised shortcuts
+  and startup are handed over to checked launch. This does not revoke the old
+  Discord session or establish that the user has signed into the private client.
 - Version 0.7 requires a Windows user/session/ACL boundary for every launch.
   WTS verifies the interactive session owner, including rejection of `runas` on
   another user's desktop. There is no ordinary-user launch fallback.

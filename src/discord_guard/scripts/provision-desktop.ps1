@@ -106,7 +106,7 @@ try {
     foreach ($name in @('DiscordGuardIdentity','DiscordGuardDesktop')) {
         if (Get-Service -Name $name -ErrorAction SilentlyContinue) { throw 'A conflicting Windows service already exists.' }
     }
-    foreach ($source in @($config.source_exe, $config.source_helper, $config.uninstall_source)) {
+    foreach ($source in @($config.source_exe, $config.source_helper, $config.uninstall_source, $config.replacement_source)) {
         Assert-NoReparse $source
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Setup payload is incomplete.' }
     }
@@ -154,6 +154,7 @@ try {
         Copy-Item -LiteralPath $source -Destination (Join-Path $config.program_dir $name) -Recurse
     }
     Copy-Item -LiteralPath $config.uninstall_source -Destination (Join-Path $config.program_dir 'Uninstall.ps1')
+    Copy-Item -LiteralPath $config.replacement_source -Destination (Join-Path $config.program_dir 'ReplaceDiscord.ps1')
     New-Item -Path $registry -Force | Out-Null
     $createdRegistry = $true
     New-ItemProperty -LiteralPath $registry -Name OriginSid -Value $config.origin_sid -PropertyType String | Out-Null

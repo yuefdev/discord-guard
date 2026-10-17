@@ -110,7 +110,7 @@ def powershell_path() -> Path:
 
 
 def script_path(name: str) -> Path:
-    if name not in ("inspect", "provision", "uninstall", "verify-installer", "provision-desktop", "uninstall-desktop"):
+    if name not in ("inspect", "provision", "uninstall", "verify-installer", "provision-desktop", "uninstall-desktop", "replace-discord"):
         raise GuardError("Bilinmeyen sistem işlemi.")
     return Path(__file__).parent / "scripts" / f"{name}.ps1"
 
@@ -131,9 +131,9 @@ def run_script(name: str, config: dict, *, secret_input: dict | None = None, tim
             creationflags=subprocess.CREATE_NO_WINDOW, timeout=timeout,
         )
     except subprocess.TimeoutExpired as error:
-        raise GuardError("Windows işlemi zaman aşımına uğradı; Discord başlatılmadı.") from error
+        raise GuardError("Windows işlemi zaman aşımına uğradı; tamamlandığı doğrulanamadı.") from error
     except OSError as error:
-        raise GuardError("Windows denetim işlemi başlatılamadı; Discord açılmadı.") from error
+        raise GuardError("Windows denetim işlemi başlatılamadı.") from error
     try:
         data = json.loads(result.stdout.lstrip("\ufeff").strip())
     except (ValueError, TypeError) as error:
@@ -186,6 +186,31 @@ def desktop_command(paths: Paths, operation: str) -> dict:
         return {"available": False, "error": 21}
 
 
+def replace_discord(paths: Paths, *, inspector=None, store=None) -> dict:
+    """Replace only the origin user's stable client, after live private launch proof."""
+    snapshot = (inspector or inspect)(paths)
+    service = snapshot.get("desktop_service", {})
+    if not desktop_policy_is_valid(snapshot.get("policy")) or not decide(snapshot).allowed or \
+            service.get("installed") != 1 or service.get("running") != 1:
+        raise GuardError("Yeni Discord’un çalıştığı doğrulanmadan eski kurulum kaldırılmaz.")
+    if not getattr(sys, "frozen", False):
+        raise GuardError("Eski Discord’un yerine geçiş paketlenmiş DiscordGuard üzerinden yapılır.")
+    store = store or startup.RegistryStore()
+    command = autostart_command(paths)
+    updater = str(paths.discord_install_root / "Update.exe")
+    try:
+        startup.retire_discord(store, command, updater, validate_only=True)
+        config = paths.config()
+        config["origin_sid"] = snapshot["policy"]["origin_sid"]
+        result = run_script("replace-discord", config, timeout=360)
+        if result.get("replaced") is not True:
+            raise GuardError("Eski uygulamanın kaldırıldığı ve kısayolların değiştiği doğrulanamadı.")
+        startup.retire_discord(store, command, updater)
+        return result
+    except startup.StartupError as error:
+        raise GuardError(str(error)) from error
+
+
 def provision_desktop(origin_sid: str, paths: Paths | None = None) -> dict:
     if not is_admin() or not getattr(sys, "frozen", False) or not LOCAL_USER_SID.fullmatch(origin_sid):
         raise GuardError("Otomatik kurulum için paketlenmiş uygulama ve Windows onayı gerekiyor.")
@@ -198,6 +223,7 @@ def provision_desktop(origin_sid: str, paths: Paths | None = None) -> dict:
                   source_legal=[str(bundle / name) for name in
                       ("LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "source.zip", "licences") if (bundle / name).exists()],
                   uninstall_source=str(script_path("uninstall-desktop")),
+                  replacement_source=str(script_path("replace-discord")),
                   directory_helper_source=str(script_path("provision")))
     return run_script("provision-desktop", config, timeout=180)
 
@@ -320,6 +346,10 @@ def launch(paths: Paths | None = None, *, inspector=None, popen=None):
         result = desktop_command(paths, "--launch")
         if result.get("available") is not True or result.get("error") != 0 or result.get("running") != 1:
             raise GuardError(f"Otomatik Discord servisi işlemi tamamlayamadı (Windows {result.get('error', 21)}). Kontrolleri yenile.")
+        try:
+            result["replacement"] = replace_discord(paths, inspector=inspector)
+        except GuardError as error:
+            raise GuardError(f"Korumalı Discord açıldı; eski uygulamanın yerine geçiş tamamlanamadı. {error}") from error
         return result
     if (initial.get("policy") or {}).get("guardcore_required") is True:
         decision = decide(initial, require_stopped=False)

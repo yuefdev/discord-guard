@@ -54,6 +54,41 @@ edilir. Anahtar kaynak veya CI artifact içine aktarılmaz.
 Komut gerçek parmak izi ister; örnekteki yer tutucu kabul edilmez. SHA-256 ve
 RFC3161 zaman damgası kullanılır. İmza SmartScreen itibarını hemen sağlamaz.
 
+### Açık kaynak için ücretsiz imza başvurusu
+
+[SignPath Foundation başvurusu](https://signpath.org/apply) ücretsiz OSS imzası
+için bir adaydır; otomatik hak değildir. Proje itibarı, yayınlanmış sürüm,
+doğrulanabilir derleme, MFA ve her imza için onay koşulları vardır. Güvenlik
+araçlarıyla ilgili kısıtları nedeniyle yerel erişim testlerimizin uygunluğu da
+sağlayıcı tarafından değerlendirilmelidir. Defender tespiti gizlenmeden bildirilir.
+Başvuru henüz yapılmadı: [başvuru taslağı](SIGNPATH-APPLICATION.md),
+[Code signing policy](CODE-SIGNING.md).
+
+### Gerçek sertifikayla imzalı uygulama adayı
+
+Launcher, masaüstü servis yardımcısı ve kurucu aynı ürün/sürüm kaynaklarını taşır.
+CurrentUser sertifika deposunda gerçek imzalama sertifikası ve anahtar erişimi
+bulunduğunda paketleyici bunları sırayla imzalayıp doğrular. `$thumbprint` gerçek
+sertifikanın parmak izi olmalıdır:
+
+```powershell
+python -B tools\package_release.py --app 'C:\AppBuild\dist\DiscordGuard' `
+  --native 'C:\GuardCoreBuild' --output 'C:\FreshSignedCandidate' `
+  --certificate-thumbprint $thumbprint `
+  --signtool 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe'
+```
+
+Payload hash'leri iç EXE'ler imzalandıktan sonra, dağıtım hash'leri ise kurucu da
+imzalandıktan sonra oluşturulur. `tools/verify-app.ps1` beklenen sertifikayı,
+Windows güven zincirini, zaman damgasını, ürün/sürümü ve dosya hash'ini kontrol
+eder. Üçüncü taraf DLL'leri yeniden imzalanmaz. Manifest uygulama/kurucu imza
+kanıtlarını kaydeder; kanal hâlâ deneysel, sürücü imzası ve çalışma kabulü hâlâ
+`false` olur. Sahte imza, test sertifikası veya Defender atlama yolu eklenmez.
+
+Bu yerel sertifika yolu, SignPath hizmetine kayıt veya API entegrasyonu değildir.
+SignPath kabulünden sonra sağlayıcının doğruladığı CI/artifact düzeni ayrıca
+kurulmalıdır. Bu makinede henüz kullanılabilir imza sertifikası bulunmuyor.
+
 ## 4. Windows çekirdek sürücüsü kabulü
 
 Publisher sertifikasıyla `.sys` imzalamak, güncel perakende Windows’un kernel

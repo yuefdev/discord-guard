@@ -20,7 +20,47 @@ runs it under the restricted virtual identity. Discord sign-in is manual.
 
 No Windows password, existing Discord token, email credentials or browser session
 is read or transferred. Windows SCM manages the virtual account credential and
-profile. The original user's Discord installation is untouched.
+profile. The original user's stable application is replaced after verified
+private launch, as described below.
+
+### First sign-in and session lifetime
+
+When sign-in is requested, the UI points to Discord's own QR login: scan the
+desktop client's code with an already signed-in mobile Discord app and approve
+the login. Normal sign-in remains available in Discord if needed. The same hint
+remains visible after launch; there is no extra confirmation dialog.
+
+Subsequent launches reuse the virtual identity's profile, which removal and
+rollback retain. Retaining files does not guarantee a valid Discord session;
+Discord can require authentication again. Restart/reinstallation persistence
+still needs runtime acceptance testing. Once the private login works, revoke
+the relevant old session in Discord's Devices settings. Removing an application
+does not revoke its server-side session. The launcher does not inspect
+authentication data or revoke sessions.
+
+### Replacing the old desktop client
+
+1. The usual access-denial probe and private launch must succeed. A fresh query
+   must then confirm the private client is installed and running. This proves
+   launch, not Discord sign-in; the old application is removed before sign-in.
+2. As the non-elevated origin user, verify the stable install's `Update.exe`
+   signature and run only its fixed `--uninstall --silent` command. Missing or
+   invalid uninstallers refuse replacement; there is no recursive-delete fallback.
+3. Recognised per-user Start menu, desktop and pinned taskbar shortcuts target
+   the installed launcher with `--autostart`, which runs the checked launch path.
+   Unrelated/customised links are preserved. A missing standard Start menu link
+   is created. Canary, PTB and other Windows users' clients are not removed.
+4. Retire only the standard old startup command and its saved restore entry.
+   The normal startup checkbox still controls automatic Windows sign-in launch.
+   Disabling it never restores an updater that this migration uninstalled.
+
+`HKCU\Software\DiscordGuard\Replacement\State` records completion and owned
+shortcut paths, without credentials. Retries do not rerun a leftover updater
+unless an old application image has reappeared. Before removal, failures restore
+changed shortcuts. If uninstall has already removed the old executable, keep
+working launcher links and report incomplete replacement for retry. Uninstall
+itself cannot be rolled back automatically. DiscordGuard never opens or copies
+the old session store; file removal is left to Discord's official uninstaller.
 
 ## Services and trust
 
@@ -56,7 +96,11 @@ DiscordGuard. From elevated PowerShell run:
 
 Confirm `REMOVE`. The uninstaller verifies desktop policy, stops/removes only its
 two services and removes the launcher/policy/shortcut. The virtual account's
-profile and Discord data remain. Failed installation rolls back newly created
+profile and Discord data remain. Recorded replacement shortcuts are removed only
+if they still target the installed launcher. Elevated cleanup rejects recorded
+paths outside the registered origin profile or through reparse points; remove
+those links as the origin user before retrying removal. The old application is
+not reinstalled. Failed installation rolls back newly created
 services/files but also retains any virtual profile. Verified 0.7 installations
 belonging to the same origin SID are moved to admin-owned `.legacy-<id>` sibling
 directories before replacement. Other installations are refused. Rollback attempts
@@ -76,6 +120,8 @@ Full acceptance still needs Discord sign-in, persistent DPAPI across service/PC
 restarts, Electron renderer/GPU/audio/video, links/attachments, screen sharing,
 automatic Discord updates, sleep/resume, cancellation and recovery on clean VMs.
 GuardCore's production signing and driver acceptance are separate work.
+Official old-client uninstall, Windows Apps registration and taskbar refresh also
+require real-machine acceptance; shortcut/registry fixture tests do not prove them.
 
 The first local migration attempt reached service registration, failed on the
 `sc.exe` command-line boundary and restored the original 0.7 policy. Registration

@@ -4,8 +4,8 @@
 
 DiscordGuard is open source under MIT. No trusted signing certificate or managed
 signing subscription is currently configured, and no signed release is claimed.
-SignPath Foundation is a possible free OSS route; no application has been
-submitted or approved. Its acceptance decision belongs to the provider.
+The maintainer reports submitting the SignPath Foundation application. Provider
+approval is pending; no certificate has been obtained. Acceptance belongs to the provider.
 
 The 0.8 launcher has an unresolved Microsoft Defender detection. Application
 signing does not clear that detection, certify protection against RATs, or supply
@@ -52,7 +52,7 @@ installation. Removal is documented in [DESKTOP-SERVICE.md](DESKTOP-SERVICE.md).
 
 ## Provider application
 
-The factual application draft is in [SIGNPATH-APPLICATION.md](SIGNPATH-APPLICATION.md).
+The application preparation reference is in [SIGNPATH-APPLICATION.md](SIGNPATH-APPLICATION.md).
 SignPath's [conditions](https://signpath.org/terms) include OSS licensing,
 verifiable builds, project reputation, release availability, approval and
 restrictions on security tools. Eligibility must be confirmed, especially for

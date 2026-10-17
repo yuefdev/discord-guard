@@ -77,7 +77,8 @@ class WindowsNativeTests(unittest.TestCase):
         scripts = [windows.script_path(name) for name in ("inspect", "provision", "uninstall", "verify-installer",
                                                          "provision-desktop", "uninstall-desktop", "replace-discord")]
         scripts += [root / "native" / name for name in ("install-vm.ps1", "remove-vm.ps1")]
-        scripts += [root / "tools" / name for name in ("sign-app.ps1", "verify-app.ps1", "verify-driver.ps1", "check-defender.ps1")]
+        scripts += [root / "build.ps1"]
+        scripts += [root / "tools" / name for name in ("build-app.ps1", "sign-app.ps1", "verify-app.ps1", "verify-driver.ps1", "check-defender.ps1")]
         for script in scripts:
             with self.subTest(script=script.name):
                 result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],

@@ -29,9 +29,9 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: python -c "import os,re; assert re.fullmatch(r'v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?',os.environ['RELEASE_TAG'])"
       - run: python -m pip install -r requirements-build.txt
+      - run: python -B native/build.py --output "${{ runner.temp }}/native"
       - shell: pwsh
         run: ./build.ps1 -OutputRoot "$env:RUNNER_TEMP/app" -Layout onedir
-      - run: python -B native/build.py --output "${{ runner.temp }}/native"
       - run: python -B tools/package_release.py --app "${{ runner.temp }}/app/dist/DiscordGuard" --native "${{ runner.temp }}/native" --output "${{ runner.temp }}/release"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

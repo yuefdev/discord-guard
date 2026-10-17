@@ -1,9 +1,9 @@
-# SignPath Foundation application draft
+# SignPath Foundation application reference
 
-**Not submitted; no approval or certificate has been obtained.** Submit through
-<https://signpath.org/apply> using the maintainer's real contact information and
-the provider's required account/security settings. Do not represent the project
-as already sponsored or production-ready.
+**Submission reported by the maintainer; approval pending.** No approval or
+certificate has been obtained. This page retains the preparation text as a
+reference, not a copy of the actual submission or provider confirmation. Do not
+represent the project as already sponsored or production-ready.
 
 ## Public project details
 

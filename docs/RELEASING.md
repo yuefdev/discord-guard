@@ -30,11 +30,18 @@ inceleyen kişi koşulu etkinleştirilmelidir. İmzalama anahtarları PR işleri
 
 ## 2. Otomatik derleme
 
-`ci.yml`, Windows runner üzerinde sabit Python bağımlılıklarını yükler; testleri,
-Qt arayüz açılışını, native derlemeyi ve politika testlerini çalıştırır. Sürücü
-paketinin Microsoft WDK SHA-512 değeri sabittir. Çıktı kaynak, bağımlılık lisansları,
-SHA256 ve açık deneysel durum manifesti içerir. GitHub işinin çevrim içi geçtiği,
-yereldeki başarının yerine varsayılmaz.
+`ci.yml`, kaynak ve Windows entegrasyon testlerini ayrı `checks` işinde çalıştırır.
+Bu iş geçince `windows` işi önce native derlemeyi ve politika testlerini tamamlar,
+ardından uygulamayı derleyip Defender taraması ve Qt açılışını denetler. Defender
+olmaması veya tespit, önceki testleri engellemez; paketleme ve artifact yüklemeyi
+durdurur. Sürücü paketinin Microsoft WDK SHA-512 değeri sabittir. Geçen kaynak
+testleri, dağıtım veya gerçek Windows çalışma kabulü anlamına gelmez.
+
+Yerel `build.ps1` testleri çalıştırıp `tools/build-app.ps1` yardımcısına devreder;
+mevcut komutu kullanmaya devam edebilirsin. CI aynı testleri iki kez çalıştırmamak
+için yardımcıyı doğrudan çağırır. Her iki yol da paketlenmiş EXE'yi açmadan önce
+Defender kontrolü ister. Kaynak, lisans, SHA256 ve deneysel durum manifesti yalnızca
+dağıtım kontrolleri geçerse paketlenir.
 
 `release-draft.yml` elle seçilen mevcut tag’den yeniden derler. Sonuçları yalnızca
 taslak ön sürüme ekler. `v0.6.0` etiketi yayın komutuna kabuk metni olarak sokulmaz.
@@ -63,8 +70,8 @@ için bir adaydır; otomatik hak değildir. Proje itibarı, yayınlanmış sür�
 doğrulanabilir derleme, MFA ve her imza için onay koşulları vardır. Güvenlik
 araçlarıyla ilgili kısıtları nedeniyle yerel erişim testlerimizin uygunluğu da
 sağlayıcı tarafından değerlendirilmelidir. Defender tespiti gizlenmeden bildirilir.
-Başvuru henüz yapılmadı: [başvuru taslağı](SIGNPATH-APPLICATION.md),
-[Code signing policy](CODE-SIGNING.md).
+Proje sahibi SignPath formunu gönderdiğini bildirdi; sağlayıcı onayı ve sertifika
+henüz yok: [başvuru referansı](SIGNPATH-APPLICATION.md), [Code signing policy](CODE-SIGNING.md).
 
 ### Gerçek sertifikayla imzalı uygulama adayı
 

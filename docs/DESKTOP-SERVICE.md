@@ -82,3 +82,8 @@ The first local migration attempt reached service registration, failed on the
 now uses `CreateServiceW` directly. Compilation and automated gates passed before
 the Defender block; successful desktop-service installation, the actual private
 fixture probe and Discord launch have **not** been demonstrated yet.
+
+CI run `39063575709` executed 89 tests: 88 passed and the unprivileged AccessCheck
+test was skipped on the elevated runner. Packaging then stopped because that
+hosted runner did not expose enabled Defender protection. This is a separate
+environment blocker, not a second malware detection or a passing release gate.

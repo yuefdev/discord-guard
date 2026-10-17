@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discord-guard"
-version = "0.7.0"
+version = "0.8.0"
 description = "A Windows account-isolated launcher for the official Discord desktop client"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -1,5 +1,16 @@
 # Açık kaynak yayın ve Windows imzası
 
+## 0.8 çalışma dalının yayın engeli
+
+Aynı masaüstünde sanal servis kimliğiyle otomatik açılış kodu geliştirildi.
+Yerel başlatıcı Windows Defender tarafından `Trojan:Win32/Bearfoos.B!ml` olarak
+engellendi; yanlış alarm olduğu henüz doğrulanmadı. 0.8 paketi yayımlanmadı.
+`tools/check-defender.ps1` uygulama/kurucu çalıştırılmadan ve paketleme sırasında
+tarama yapar; tehdit veya tarama yokluğunda dağıtımı durdurur. Defender istisnası,
+kapatma veya karantinadan geri alma kullanılmaz. Ayrıntılar: `DESKTOP-SERVICE.md`.
+
+## Yayımlanan 0.7 sürümü
+
 **Durum: 0.7.0 deneysel önizleme.** Kaynak kod MIT; çekirdek sürücüsü imzasız ve
 çalışma testinden geçmedi. Masaüstü uygulaması yalnızca ayrı Windows hesabı,
 gerçek oturum sahibi ve erişim izinleri doğrulanınca Discord’u açar. Setup.exe

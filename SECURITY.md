@@ -15,6 +15,14 @@ contact without posting exploit details publicly.
 
 ## Boundaries
 
+- Version 0.8 uses a Windows-managed virtual service account and a LocalSystem
+  broker. Discord itself runs with a restricted, medium-integrity virtual-account
+  token on the original desktop. No user-managed password or account switch is
+  required. Shared-desktop input/screen/clipboard and code already executing as
+  that virtual identity remain outside the file/process-access boundary.
+- Before launching, the client requires denial of a harmless fixture read and
+  process-memory open, plus a successful DPAPI round-trip inside the private
+  identity. These probes are not a complete Discord or malware acceptance test.
 - Version 0.7 requires a Windows user/session/ACL boundary for every launch.
   WTS verifies the interactive session owner, including rejection of `runas` on
   another user's desktop. There is no ordinary-user launch fallback.

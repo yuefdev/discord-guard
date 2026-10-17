@@ -102,7 +102,13 @@ def build(output, wdk_root=None):
          f"/Fe:{output / 'GuardCoreCtl.exe'}", "/link", *libflags,
          "advapi32.lib", "fltlib.lib", "wtsapi32.lib", "userenv.lib", "wintrust.lib", "crypt32.lib"],
         cwd=output, env=env)
-    artifacts = [output / "GuardCore.sys", output / "GuardCoreCtl.exe", output / "GuardCore.pdb", output / "policy_tests.exe"]
+    run([cl, "/nologo", "/EHsc", "/W4", "/WX", "/std:c++17", "/DUNICODE", "/D_UNICODE", *inc,
+         ROOT / "desktop" / "session.cpp", f"/Fo:{output / 'DiscordGuardSession.obj'}",
+         f"/Fe:{output / 'DiscordGuardSession.exe'}", "/link", *libflags,
+         "advapi32.lib", "wtsapi32.lib", "userenv.lib", "wintrust.lib", "crypt32.lib", "winhttp.lib",
+         "user32.lib", "shell32.lib", "ole32.lib"], cwd=output, env=env)
+    artifacts = [output / "GuardCore.sys", output / "GuardCoreCtl.exe", output / "GuardCore.pdb", output / "policy_tests.exe",
+                 output / "DiscordGuardSession.exe"]
     manifest = {"version": "0.6.0-lab", "runtime_driver_tested": False, "driver_signed": False,
                 "sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts}}
     manifest_path = output / "manifest.json"

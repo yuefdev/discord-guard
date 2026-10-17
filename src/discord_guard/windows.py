@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import uuid
 
 from . import __version__, startup
-from .core import LOCAL_USER_SID, acl_is_safe, decide, discord_signature_is_valid, policy_is_valid
+from .core import LOCAL_USER_SID, acl_is_safe, decide, desktop_policy_is_valid, discord_signature_is_valid, policy_is_valid
 
 
 class GuardError(RuntimeError):
@@ -110,7 +110,7 @@ def powershell_path() -> Path:
 
 
 def script_path(name: str) -> Path:
-    if name not in ("inspect", "provision", "uninstall", "verify-installer"):
+    if name not in ("inspect", "provision", "uninstall", "verify-installer", "provision-desktop", "uninstall-desktop"):
         raise GuardError("Bilinmeyen sistem işlemi.")
     return Path(__file__).parent / "scripts" / f"{name}.ps1"
 
@@ -149,6 +149,11 @@ def inspect(paths: Paths | None = None) -> dict:
         return {"windows": False}
     paths = paths or Paths.current()
     snapshot = run_script("inspect", paths.config())
+    if desktop_policy_is_valid(snapshot.get("policy")):
+        acls = snapshot.get("system_acls", {})
+        trusted = all(acl_is_safe(acls.get(key, {})) for key in
+                      ("program_parent", "program_dir", "app", "data_dir", "policy", "desktop_helper"))
+        snapshot["desktop_service"] = desktop_command(paths, "--query") if trusted else {"available": False}
     if (snapshot.get("policy") or {}).get("guardcore_required") is True:
         acls = snapshot.get("system_acls", {})
         trusted = policy_is_valid(snapshot.get("policy")) and all(acl_is_safe(acls.get(key, {})) for key in
@@ -156,13 +161,45 @@ def inspect(paths: Paths | None = None) -> dict:
         snapshot["guardcore"] = guardcore_command(paths, "--query") if trusted else {"available": False}
     snapshot["autostart_enabled"] = None
     policy = snapshot.get("policy") or {}
-    if policy.get("guard_sid") == snapshot.get("current", {}).get("sid"):
+    startup_sid = policy.get("origin_sid") if desktop_policy_is_valid(policy) else policy.get("guard_sid")
+    if startup_sid == snapshot.get("current", {}).get("sid"):
         try:
             entry = startup.RegistryStore().read(startup.RUN_KEY, startup.GUARD_VALUE)
             snapshot["autostart_enabled"] = entry == startup.Entry(autostart_command(paths))
         except OSError:
             pass
     return snapshot
+
+
+def desktop_command(paths: Paths, operation: str) -> dict:
+    if operation not in ("--query", "--launch", "--verify-boundary"):
+        raise GuardError("Bilinmeyen masaüstü servis işlemi.")
+    try:
+        result = subprocess.run([str(paths.program_dir / "DiscordGuardSession.exe"), operation],
+            capture_output=True, text=True, encoding="utf-8", timeout=450 if operation == "--launch" else 60,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        value = json.loads(result.stdout)
+        if not isinstance(value, dict):
+            raise ValueError()
+        return value
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {"available": False, "error": 21}
+
+
+def provision_desktop(origin_sid: str, paths: Paths | None = None) -> dict:
+    if not is_admin() or not getattr(sys, "frozen", False) or not LOCAL_USER_SID.fullmatch(origin_sid):
+        raise GuardError("Otomatik kurulum için paketlenmiş uygulama ve Windows onayı gerekiyor.")
+    paths = paths or Paths.current()
+    bundle = Path(sys.executable).parent
+    config = paths.config()
+    config.update(origin_sid=origin_sid, source_exe=sys.executable,
+                  source_helper=str(bundle / "DiscordGuardSession.exe"),
+                  source_internal=str(bundle / "_internal") if (bundle / "_internal").is_dir() else None,
+                  source_legal=[str(bundle / name) for name in
+                      ("LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "source.zip", "licences") if (bundle / name).exists()],
+                  uninstall_source=str(script_path("uninstall-desktop")),
+                  directory_helper_source=str(script_path("provision")))
+    return run_script("provision-desktop", config, timeout=180)
 
 
 def is_admin() -> bool:
@@ -272,6 +309,18 @@ def launch(paths: Paths | None = None, *, inspector=None, popen=None):
     paths = paths or Paths.current()
     inspector = inspector or inspect
     initial = inspector(paths)
+    if desktop_policy_is_valid(initial.get("policy")):
+        decision = decide(initial)
+        if not decision.allowed:
+            raise GuardError("\n".join(check.detail for check in decision.checks if not check.passed))
+        proof = desktop_command(paths, "--verify-boundary")
+        if proof.get("available") is not True or proof.get("error") != 0 or \
+                proof.get("file_denied") != 1 or proof.get("memory_denied") != 1:
+            raise GuardError(f"Zararsız erişim testi geçmedi (Windows {proof.get('error', 21)}). Discord başlatılmadı.")
+        result = desktop_command(paths, "--launch")
+        if result.get("available") is not True or result.get("error") != 0 or result.get("running") != 1:
+            raise GuardError(f"Otomatik Discord servisi işlemi tamamlayamadı (Windows {result.get('error', 21)}). Kontrolleri yenile.")
+        return result
     if (initial.get("policy") or {}).get("guardcore_required") is True:
         decision = decide(initial, require_stopped=False)
         if not decision.allowed:
@@ -313,6 +362,9 @@ def run_autostart(paths: Paths | None = None, *, inspector=None, popen=None) -> 
     paths = paths or Paths.current()
     inspector = inspector or inspect
     snapshot = inspector(paths)
+    if desktop_policy_is_valid(snapshot.get("policy")):
+        launch(paths, inspector=inspector, popen=popen)
+        return
     if snapshot.get("client_running") is True:
         decision = decide(snapshot, require_stopped=False)
         if not decision.allowed:
@@ -330,7 +382,8 @@ def set_autostart(enabled: bool, paths: Paths | None = None, *, inspector=None, 
     if failed:
         raise GuardError("\n".join(check.detail for check in failed))
     installed = paths.program_dir / "DiscordGuard.exe"
-    if not getattr(sys, "frozen", False) or Path(sys.executable).resolve() != installed.resolve():
+    if not getattr(sys, "frozen", False) or (not desktop_policy_is_valid(snapshot.get("policy"))
+            and Path(sys.executable).resolve() != installed.resolve()):
         raise GuardError("Otomatik açılışı, korumalı hesaptaki Başlat menüsünden açılan yüklü uygulamada ayarlayın.")
     try:
         return startup.configure(store or startup.RegistryStore(), autostart_command(paths),
@@ -357,7 +410,10 @@ class OfficialRedirects(request.HTTPRedirectHandler):
 def install_discord(paths: Paths | None = None):
     """Download the official installer into the protected account and verify its signer."""
     paths = paths or Paths.current()
-    if (inspect(paths).get("policy") or {}).get("guardcore_required") is True:
+    policy = inspect(paths).get("policy") or {}
+    if desktop_policy_is_valid(policy):
+        raise GuardError("Otomatik servis kurulumunda ana ekrandaki Discord’u otomatik kur ve aç düğmesini kullan.")
+    if policy.get("guardcore_required") is True:
         raise GuardError("GuardCore VM prototipi açıkken kurulum/güncelleme yapılmaz. VM geri alma yönergesini uygulayın.")
     prepare_profile(paths, inspect, require_client=False)
     opener = request.build_opener(OfficialRedirects())

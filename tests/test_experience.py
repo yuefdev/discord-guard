@@ -44,7 +44,7 @@ class ExperienceTests(unittest.TestCase):
             state = ready()
             state["current"].update(sid=sid, session_sid=session)
             dashboard = experience.present(state)
-            self.assertEqual(dashboard.mode, "switch")
+            self.assertEqual(dashboard.mode, "upgrade" if sid == HOST and session == HOST else "switch")
             self.assertFalse(dashboard.launchable)
 
     def test_missing_client_offers_install_only_in_verified_guard_session(self):
@@ -145,7 +145,7 @@ class GuiFlowTests(unittest.TestCase):
         from discord_guard.gui import GuardWindow
         window = GuardWindow(auto_refresh=False)
         host = ready()
-        host["current"].update(sid=HOST, session_sid=HOST)
+        host["current"].update(sid=GUARD, session_sid=HOST)
         missing = ready()
         missing["client"] = {"found": False}
         try:

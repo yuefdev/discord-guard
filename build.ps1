@@ -17,6 +17,7 @@ python -m PyInstaller --noconfirm --clean "--$Layout" --windowed --name DiscordG
 if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
 $artifact = Join-Path $dist 'DiscordGuard.exe'
 if ($Layout -eq 'onedir') { $artifact=Join-Path $dist 'DiscordGuard\DiscordGuard.exe' }
+& (Join-Path $PSScriptRoot 'tools\check-defender.ps1') -Artifact $artifact
 $process = Start-Process -FilePath $artifact -ArgumentList '--smoke-test' -PassThru -Wait
 if ($process.ExitCode -ne 0) { throw 'Packaged GUI smoke check failed.' }
 "Built: $artifact"

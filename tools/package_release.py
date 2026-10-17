@@ -50,8 +50,23 @@ def build_setup(staging: Path, output: Path, version: str) -> Path:
                     "--specpath", str(work / "spec"), "--exclude-module", "PySide6",
                     "--add-data", f"{staging};payload", str(ROOT / "tools/setup_bootstrap.py")], check=True)
     installer = output / f"{name}.exe"
+    defender_scan(installer)
     subprocess.run([str(installer), "--smoke-test"], check=True, timeout=180)
     return installer
+
+
+def defender_scan(path: Path):
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetWindowsDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+    buffer = ctypes.create_unicode_buffer(32768)
+    size = kernel.GetWindowsDirectoryW(buffer, len(buffer))
+    if not size or size >= len(buffer):
+        raise ValueError("Windows scanner path could not be established")
+    powershell = Path(buffer.value) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-File",
+                    str(ROOT / "tools/check-defender.ps1"), "-Artifact", str(path)], check=True)
 
 
 def package(app: Path, native: Path, output: Path):
@@ -68,12 +83,15 @@ def package(app: Path, native: Path, output: Path):
     for name, expected in native_manifest["sha256"].items():
         if Path(name).name != name or sha256(native / name) != expected:
             raise ValueError("Native artifact hash mismatch")
+    defender_scan(app)
+    defender_scan(native / "DiscordGuardSession.exe")
     output.mkdir(parents=True, exist_ok=True)
     staging = output / "DiscordGuard-preview"
     if staging.exists():
         raise ValueError("Output staging already exists; choose a fresh release directory")
     staging.mkdir()
     shutil.copytree(app, staging / "app")
+    shutil.copy2(native / "DiscordGuardSession.exe", staging / "app" / "DiscordGuardSession.exe")
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md"):
         shutil.copy2(ROOT / name, staging / name)
         shutil.copy2(ROOT / name, staging / "app" / name)
@@ -102,9 +120,9 @@ def package(app: Path, native: Path, output: Path):
         shutil.copy2(python_licence, licences / "Python.txt")
     notice = ("DiscordGuard " + version + " experimental preview\n\n"
               "Run app\\DiscordGuard.exe, or download the Setup.exe asset for guided installation.\n"
-              "Setup creates a separate standard Windows account. UAC, a new account password, "
-              "Windows sign-in and Discord sign-in remain interactive.\n"
-              "Discord launches only after the account, interactive session and private ACL checks pass.\n"
+              "Approve UAC once. A Windows-managed virtual service identity runs Discord on your current desktop.\n"
+              "No Windows password or account switch. Your first Discord sign-in remains manual.\n"
+              "Private file/process fixture checks are mandatory. Shared-desktop input and screen capture remain outside this boundary.\n"
               "GuardCore is separate, unsigned and VM-only; no driver is installed by this app.\n"
               "See SECURITY.md, source docs/RELEASING.md and native/README.md.\n")
     (staging / "READ-ME-FIRST.txt").write_text(notice, encoding="utf-8")
@@ -125,7 +143,9 @@ def package(app: Path, native: Path, output: Path):
     (output / "SHA256SUMS.txt").write_text("".join(f"{sha256(path)}  {path.name}\n" for path in artifacts), encoding="ascii")
     manifest = {"version": version, "channel": "experimental-preview", "app_signed": False,
                  "driver_signed": False, "driver_runtime_validated": False, "active_rat_protection_claimed": False,
-                 "requires_isolated_session": True, "installer_smoke_tested": True,
+                 "requires_isolated_session": False, "requires_private_identity": True,
+                 "default_backend": "desktop_service", "installer_smoke_tested": True,
+                 "desktop_service_full_acceptance_passed": False,
                 "dependencies": dependencies, "artifacts": {path.name: sha256(path) for path in artifacts}}
     (output / "release-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(json.dumps({"preview": str(app_zip), "installer": str(installer), "source": str(source_zip), "driver_runtime_validated": False}))

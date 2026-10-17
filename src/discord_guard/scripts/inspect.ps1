@@ -71,6 +71,9 @@ try {
 if ($result.policy -and $result.policy.guardcore_required -eq $true) {
     $result.system_acls.native_helper = Get-AccessInfo (Join-Path $config.program_dir 'GuardCoreCtl.exe')
 }
+if ($result.policy -and $result.policy.backend -eq 'desktop_service') {
+    $result.system_acls.desktop_helper = Get-AccessInfo (Join-Path $config.program_dir 'DiscordGuardSession.exe')
+}
 try {
     $user = Get-LocalUser -Name 'DiscordGuard' -ErrorAction Stop
     $admins = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop)

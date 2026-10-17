@@ -77,6 +77,41 @@ def policy_is_valid(policy: Any) -> bool:
     )
 
 
+def desktop_policy_is_valid(policy: Any) -> bool:
+    return isinstance(policy, dict) and policy.get("schema_version") == 2 \
+        and policy.get("backend") == "desktop_service" \
+        and isinstance(policy.get("origin_sid"), str) and bool(LOCAL_USER_SID.fullmatch(policy["origin_sid"]))
+
+
+def desktop_decision(snapshot: dict[str, Any]) -> Decision:
+    policy = snapshot.get("policy")
+    valid = desktop_policy_is_valid(policy)
+    current = snapshot.get("current", {})
+    origin = policy.get("origin_sid") if valid else None
+    acls = snapshot.get("system_acls", {})
+    engine = snapshot.get("desktop_service", {})
+    defender = snapshot.get("defender", {})
+    values = (
+        ("windows", "Windows", snapshot.get("windows") is True, "Windows 10/11 gerekiyor."),
+        ("installed", "Otomatik servis kurulumu", valid, "Otomatik koruma kurulumunu tamamla."),
+        ("policy_acl", "Servis ve kurulum izinleri", all(acl_is_safe(acls.get(key, {})) for key in
+            ("program_parent", "program_dir", "app", "data_dir", "policy", "desktop_helper")),
+            "Başlatıcı veya servis dosyalarının yönetici sahipliği doğrulanamadı."),
+        ("identity", "Kurulumu yapan Windows oturumu", bool(origin) and current.get("sid") == origin
+            and current.get("session_sid") == origin and current.get("session_id", 0) > 0,
+            "Bu kurulum yalnızca kuran kullanıcının kendi Windows oturumunda çalışır."),
+        ("elevation", "Normal masaüstü yetkisi", current.get("elevated") is False,
+            "Ana uygulamayı yönetici olarak çalıştırma."),
+        ("defender", "Windows Defender", all(defender.get(key) is True for key in ("realtime", "behavior", "antivirus")),
+            "Defender gerçek zamanlı ve davranış koruması doğrulanamadı."),
+        ("desktop_service", "Özel servis kimliği ve dosya sınırı", engine.get("available") is True
+            and engine.get("error") == 0 and engine.get("ready") == 1,
+            "Arka plan servisi veya özel profil doğrulanamadı. Normal Discord’a geri dönülmez."),
+    )
+    return Decision(tuple(Check(key, title, bool(passed), "Doğrulandı." if passed else bad)
+                          for key, title, passed, bad in values), hardening_checks(snapshot))
+
+
 def discord_signature_is_valid(info: dict[str, Any]) -> bool:
     return info.get("signature") == "Valid" and bool(re.search(
         r"(?:^|,\s*)O=Discord Inc\.(?:,|$)", info.get("signer", "")))
@@ -112,7 +147,9 @@ def hardening_checks(snapshot: dict[str, Any]) -> tuple[Check, ...]:
 
 
 def decide(snapshot: dict[str, Any], *, require_profile: bool = True,
-           require_client: bool = True, require_stopped: bool = True) -> Decision:
+            require_client: bool = True, require_stopped: bool = True) -> Decision:
+    if isinstance(snapshot.get("policy"), dict) and snapshot["policy"].get("backend") == "desktop_service":
+        return desktop_decision(snapshot)
     checks: list[Check] = []
 
     def add(key: str, title: str, passed: bool, good: str, bad: str) -> None:

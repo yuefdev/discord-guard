@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from .windows import GuardError
+from . import __version__
 
 
 def instance_name(*, setup=False, onboard=False):
@@ -18,7 +19,7 @@ def instance_name(*, setup=False, onboard=False):
         value = wintypes.DWORD()
         if ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(value)):
             session = value.value
-    channel = "setup" if setup else "onboard" if onboard else "main"
+    channel = f"setup-{__version__}" if setup else f"onboard-{__version__}" if onboard else "main"
     identity = f"{getpass.getuser()}:{session}:{channel}"
     return "DiscordGuard-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
 

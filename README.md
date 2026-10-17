@@ -1,35 +1,49 @@
 # DiscordGuard — desktop isolation prototype
 
 A small Windows launcher for the **normal, official Discord desktop application**.
-Use your existing Discord account; only the **Windows account and session** are
-separate. The Turkish liquid-glass interface uses PySide6/Qt. Original code is
+Use your existing Discord account. Version 0.8 uses a **Windows-managed virtual
+service identity on your current desktop**. The Turkish interface uses PySide6/Qt. Original code is
 MIT-licensed; see `THIRD_PARTY_NOTICES.md` for dependency terms.
 
-## Guided installation and protected-only launch (0.7)
+## Automatic setup on the same desktop (0.8, unpublished)
 
-[Download DiscordGuard 0.7.0 Setup](https://github.com/yuefdev/discord-guard/releases/download/v0.7.0/DiscordGuard-0.7.0-Setup.exe)
-or browse the [release assets](https://github.com/yuefdev/discord-guard/releases).
+**Distribution blocked:** Windows Defender classified the local 0.8 launcher as
+`Trojan:Win32/Bearfoos.B!ml`. A false positive has not been established. Do not
+disable Defender or restore the quarantined file to run this preview. The 0.8
+source is under development; there is no published 0.8 installer. Existing
+[release assets](https://github.com/yuefdev/discord-guard/releases) use the older
+account-switching flow.
 
-The setup EXE opens the account-setup wizard. Approve Windows UAC, choose the new
-account password, then use **Korumalı hesaba geç**. Sign into `DiscordGuard`, open
-DiscordGuard from Start, and use **Discord’u indir ve kur**. The official Discord
-installer's publisher is checked before execution. Windows and Discord sign-in
-remain interactive; no credentials or auto-logon password are saved.
+Approve Windows UAC once. The installer registers a Windows-managed virtual
+identity and a local broker. There is no new Windows password to enter and no
+account switching. The broker downloads and verifies the official Discord
+installer and opens Discord on the current desktop under its private identity.
+Your first Discord sign-in remains yours; existing tokens are never copied.
 
-The main button now follows setup → separate session → official install → checked
-launch. **There is no ordinary-user launch fallback.** Windows WTS must identify
-the protected account as the actual session owner; `runas` on another desktop is
-rejected. Checked startup can be enabled with the checkbox on the launch screen.
-The setup payload includes replaceable Qt libraries, licences and source.
+Before launch, a harmless process under the private identity checks DPAPI, and
+the caller must receive access denied when opening its dummy file and process
+memory. Failure blocks launch. Service calls authenticate the installing SID,
+actual WTS session owner, SCM configuration and pipe-server PID. Only fixed
+status, fixture-test and verified Discord launch operations are exposed.
 
-This is an unsigned account-isolation preview. GuardCore remains a separate lab
-driver; the installer does not deploy it or claim generic malware blocking.
+**Same desktop means shared input, screen and clipboard.** This layer targets
+cross-identity file/process access, not keylogging, malicious Discord attachments
+executed inside the private identity, or administrator/kernel attackers. It is
+an unsigned preview; full Discord audio/video/update acceptance is still pending.
+GuardCore remains a separate lab driver. Verified 0.7 launcher/policy directories
+are backed up during automatic migration; the old account and its data remain.
 
 Version 0.6.1 restores and raises the existing window when opened again. Each
 Windows user/session keeps one main window; repeat launches no longer accumulate
 background copies. Account setup uses a separate window channel.
 
-## Security boundary
+## Legacy separate-account mode (0.7)
+
+The following account-switching instructions apply to existing 0.7 installations.
+New 0.8 installations use the automatic desktop service described above. See
+[desktop service details](docs/DESKTOP-SERVICE.md) for setup, recovery and limits.
+
+### Separate-session security boundary
 
 The protected account has its own Windows SID, interactive session and Discord
 profile. An ordinary process running as the original Windows user cannot read

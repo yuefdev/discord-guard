@@ -73,9 +73,10 @@ class WindowsNativeTests(unittest.TestCase):
         )
         encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
         root = Path(__file__).resolve().parents[1]
-        scripts = [windows.script_path(name) for name in ("inspect", "provision", "uninstall", "verify-installer")]
+        scripts = [windows.script_path(name) for name in ("inspect", "provision", "uninstall", "verify-installer",
+                                                         "provision-desktop", "uninstall-desktop")]
         scripts += [root / "native" / name for name in ("install-vm.ps1", "remove-vm.ps1")]
-        scripts += [root / "tools" / name for name in ("sign-app.ps1", "verify-driver.ps1")]
+        scripts += [root / "tools" / name for name in ("sign-app.ps1", "verify-driver.ps1", "check-defender.ps1")]
         for script in scripts:
             with self.subTest(script=script.name):
                 result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
@@ -122,6 +123,21 @@ class WindowsNativeTests(unittest.TestCase):
         if not status["interactive"]:
             self.skipTest("Service session has no interactive owner")
         self.assertTrue(status["resolved"])
+
+    def test_service_setup_api_helper_compiles_without_registering_services(self):
+        source = windows.script_path("provision-desktop").read_text(encoding="utf-8")
+        helper = re.search(r"Add-Type -TypeDefinition @'\n(.*?)\n'@", source, re.DOTALL)
+        self.assertIsNotNone(helper)
+        command = (
+            "$source=[Console]::In.ReadToEnd(); Add-Type -TypeDefinition $source -ErrorAction Stop; "
+            "@{method=[bool][DiscordGuardServiceSetup].GetMethod('Create')} | ConvertTo-Json -Compress"
+        )
+        encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
+        result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            input=helper.group(1), capture_output=True, text=True, encoding="utf-8",
+            timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["method"])
 
 
 if __name__ == "__main__":

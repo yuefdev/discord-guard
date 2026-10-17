@@ -17,9 +17,12 @@ def main(argv=None) -> int:
     parser.add_argument("--setup", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--origin-sid", help=argparse.SUPPRESS)
     parser.add_argument("--autostart", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--onboard", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.autostart and (args.setup or args.smoke_test or args.diagnose or args.origin_sid):
+    if args.autostart and (args.setup or args.smoke_test or args.diagnose or args.origin_sid or args.onboard):
         parser.error("--autostart must be used alone")
+    if args.onboard and (args.setup or args.smoke_test or args.diagnose or args.origin_sid):
+        parser.error("--onboard must be used alone")
     if args.diagnose:
         try:
             result = decide(windows.inspect()).to_dict()
@@ -51,7 +54,7 @@ def main(argv=None) -> int:
             startup_error = "Otomatik başlatma tamamlanamadı. Discord’un denetimli açılışı yapılmadı."
     from discord_guard.gui import show
     show(setup_origin_sid=args.origin_sid if args.setup else None, smoke_test=args.smoke_test,
-         startup_error=startup_error)
+         startup_error=startup_error, onboard=args.onboard)
     return 0
 
 

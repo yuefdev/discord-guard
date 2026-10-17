@@ -106,6 +106,15 @@ try {
         Assert-NoReparse $config.source_internal
         Copy-Item -LiteralPath $config.source_internal -Destination (Join-Path $config.program_dir '_internal') -Recurse
     }
+    foreach ($source in @($config.source_legal)) {
+        if (-not $source) { continue }
+        Assert-NoReparse $source
+        $name = Split-Path -Leaf $source
+        if ($name -notin @('LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','source.zip','licences')) {
+            throw 'Unexpected licence payload.'
+        }
+        Copy-Item -LiteralPath $source -Destination (Join-Path $config.program_dir $name) -Recurse
+    }
     $policy = @{schema_version=1; account_name='DiscordGuard'; guard_sid=$user.SID.Value;
         origin_sid=$inputData.origin_sid; created_utc=[DateTime]::UtcNow.ToString('o')}
     [IO.File]::WriteAllText($config.policy_path, ($policy | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))

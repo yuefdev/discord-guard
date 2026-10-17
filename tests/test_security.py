@@ -33,7 +33,7 @@ def ready():
         "system_acls": {key: safe_acl() for key in
                         ("program_parent", "program_dir", "app", "data_dir", "policy")},
         "account": {"sid": GUARD, "enabled": True, "admin_member": False, "description": APP_MARKER},
-        "current": {"sid": GUARD, "session_id": 2, "elevated": False},
+        "current": {"sid": GUARD, "session_sid": GUARD, "session_id": 2, "elevated": False},
         "fast_switching_disabled": False,
         "defender": {"realtime": True, "behavior": True, "antivirus": True},
         "hardening": {"secure_boot_registry": True, "tamper_protection": True,
@@ -64,6 +64,12 @@ class DecisionTests(unittest.TestCase):
         state = ready()
         state["current"]["sid"] = HOST
         self.assertFalse(decide(state).allowed)
+
+    def test_runas_on_another_users_desktop_or_unknown_session_is_rejected(self):
+        for owner in (HOST, None, ""):
+            state = ready()
+            state["current"]["session_sid"] = owner
+            self.assertFalse(decide(state).allowed)
 
     def test_no_identity_separation_is_rejected(self):
         state = ready()
@@ -307,6 +313,14 @@ class LaunchTests(unittest.TestCase):
         self.assertNotIn(secret, repr(positional))
         self.assertNotIn("env", keywords)
         self.assertIn(secret, keywords["input"])
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows subprocess contract")
+    def test_inspection_command_fits_windows_createprocess_limit(self):
+        result = Mock(returncode=0, stdout='{"ok":true}', stderr="")
+        with patch.object(windows.subprocess, "run", return_value=result) as run:
+            windows.run_script("inspect", {"test": "non-secret"})
+        command = run.call_args.args[0]
+        self.assertLess(len(windows.subprocess.list2cmdline(command)), 4096)
 
 
 class InstallerTests(unittest.TestCase):

@@ -99,6 +99,30 @@ class WindowsNativeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["method"])
 
+    def test_wts_helper_resolves_the_real_session_owner_without_setup(self):
+        source = windows.script_path("inspect").read_text(encoding="utf-8")
+        helper = re.search(r"Add-Type -TypeDefinition @'\n(.*?)\n'@", source, re.DOTALL)
+        self.assertIsNotNone(helper)
+        command = (
+            "$source=[Console]::In.ReadToEnd(); Add-Type -TypeDefinition $source -ErrorAction Stop; "
+            "$session=(Get-Process -Id $PID).SessionId; "
+            "if ($session -eq 0) { @{interactive=$false} | ConvertTo-Json -Compress; exit }; "
+            "$name=[DiscordGuardSession]::Query($session,5); $domain=[DiscordGuardSession]::Query($session,7); "
+            "$account=[Security.Principal.NTAccount]::new($domain,$name); "
+            "$sid=$account.Translate([Security.Principal.SecurityIdentifier]).Value; "
+            "@{interactive=$true; resolved=[bool]($sid -match '^S-1-'); "
+            "matches=($sid -eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value)} | ConvertTo-Json -Compress"
+        )
+        encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
+        result = subprocess.run([str(windows.powershell_path()), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            input=helper.group(1), capture_output=True, text=True, encoding="utf-8",
+            timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = json.loads(result.stdout)
+        if not status["interactive"]:
+            self.skipTest("Service session has no interactive owner")
+        self.assertTrue(status["resolved"])
+
 
 if __name__ == "__main__":
     unittest.main()

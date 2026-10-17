@@ -5,14 +5,29 @@ Use your existing Discord account; only the **Windows account and session** are
 separate. The Turkish liquid-glass interface uses PySide6/Qt. Original code is
 MIT-licensed; see `THIRD_PARTY_NOTICES.md` for dependency terms.
 
-## One primary action (0.6)
+## Guided installation and protected-only launch (0.7)
 
-The dashboard automatically detects the current user's installed normal Discord.
-Its single button checks the publisher signature, standard entry, basic install
-ACLs and Defender, then opens that executable. **Ordinary mode is an inspection
-and launch feature, not active RAT/token protection.** The screen explicitly says
-live protection is off. Account isolation remains under **Ayrıntılar ve kurulum**.
-GuardCore-required installations still fail closed if their broker is unavailable.
+[Download DiscordGuard 0.7.0 Setup](https://github.com/yuefdev/discord-guard/releases/download/v0.7.0/DiscordGuard-0.7.0-Setup.exe)
+or browse the [release assets](https://github.com/yuefdev/discord-guard/releases).
+
+The setup EXE opens the account-setup wizard. Approve Windows UAC, choose the new
+account password, then use **Korumalı hesaba geç**. Sign into `DiscordGuard`, open
+DiscordGuard from Start, and use **Discord’u indir ve kur**. The official Discord
+installer's publisher is checked before execution. Windows and Discord sign-in
+remain interactive; no credentials or auto-logon password are saved.
+
+The main button now follows setup → separate session → official install → checked
+launch. **There is no ordinary-user launch fallback.** Windows WTS must identify
+the protected account as the actual session owner; `runas` on another desktop is
+rejected. Checked startup can be enabled with the checkbox on the launch screen.
+The setup payload includes replaceable Qt libraries, licences and source.
+
+This is an unsigned account-isolation preview. GuardCore remains a separate lab
+driver; the installer does not deploy it or claim generic malware blocking.
+
+Version 0.6.1 restores and raises the existing window when opened again. Each
+Windows user/session keeps one main window; repeat launches no longer accumulate
+background copies. Account setup uses a separate window channel.
 
 ## Security boundary
 
@@ -35,7 +50,7 @@ an application allow-list: reserve it for Discord and run no untrusted software.
    local pipe, never through command-line arguments, logs, policy or files.
 5. Setup creates the standard `DiscordGuard` account, installs the launcher and
    any `_internal` dependency directory in
-   `Program Files\DiscordGuard`, and adds a common Start-menu shortcut.
+    `Program Files\DiscordGuard`, and adds a common Start-menu shortcut.
 6. Choose **Windows giriş ekranı**, then sign into `DiscordGuard`. Do not use
    `runas` on the original desktop.
 
@@ -59,7 +74,8 @@ Windows session. Enable checked startup as described below for daily use.
 
 - Administrator-owned launcher/policy and the expected account SID.
 - Current user is the enabled, standard `DiscordGuard` account.
-- Interactive Windows session, user switching enabled, launcher not elevated.
+- Actual WTS session owner matches the protected SID, user switching enabled,
+  launcher not elevated. A matching process SID alone is insufficient.
 - Defender antivirus, real-time and behaviour protection enabled.
 - No Discord process already running in that Windows session.
 - Discord executable has a valid **Discord Inc.** signature.

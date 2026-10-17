@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing reviewed tag, for example v0.6.0'
+        description: 'Existing reviewed tag, for example v0.7.0'
         required: true
         type: string
 
@@ -36,7 +36,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reviewed-preview
-          path: ${{ runner.temp }}/release/*
+          path: |
+            ${{ runner.temp }}/release/*.zip
+            ${{ runner.temp }}/release/*.exe
+            ${{ runner.temp }}/release/*.json
+            ${{ runner.temp }}/release/SHA256SUMS.txt
           if-no-files-found: error
 
   draft:

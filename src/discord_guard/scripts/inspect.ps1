@@ -21,7 +21,38 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $current = @{sid=$identity.User.Value;
     elevated=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);
-    session_id=(Get-Process -Id $PID).SessionId}
+    session_id=(Get-Process -Id $PID).SessionId; session_sid=$null}
+# A process token alone does not prove a separate desktop: runas retains the
+# original user's session. Resolve the actual interactive session owner via WTS.
+try {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class DiscordGuardSession {
+    [DllImport("wtsapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    private static extern bool WTSQuerySessionInformationW(IntPtr server, int session,
+        int info, out IntPtr buffer, out int bytes);
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
+    public static string Query(int session, int info) {
+        IntPtr buffer = IntPtr.Zero;
+        int bytes;
+        try {
+            if (!WTSQuerySessionInformationW(IntPtr.Zero, session, info, out buffer, out bytes))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (buffer == IntPtr.Zero || bytes < 2) throw new InvalidOperationException("No session owner");
+            return Marshal.PtrToStringUni(buffer);
+        } finally { if (buffer != IntPtr.Zero) WTSFreeMemory(buffer); }
+    }
+}
+'@
+    $sessionUser = [DiscordGuardSession]::Query($current.session_id, 5)
+    $sessionDomain = [DiscordGuardSession]::Query($current.session_id, 7)
+    if (-not $sessionUser -or -not $sessionDomain) { throw 'Session owner is unavailable' }
+    $sessionAccount = [Security.Principal.NTAccount]::new($sessionDomain, $sessionUser)
+    $current.session_sid = $sessionAccount.Translate([Security.Principal.SecurityIdentifier]).Value
+} catch {}
 $result = @{windows=$true; current=$current; policy=$null; system_acls=@{};
     account=@{}; client=@{}; profile_acls=@(); client_running=$null;
     fast_switching_disabled=$null; defender=@{}; hardening=@{}}

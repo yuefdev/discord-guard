@@ -15,9 +15,11 @@ contact without posting exploit details publicly.
 
 ## Boundaries
 
-- Ordinary mode verifies the installed desktop client and opens it. It is **not
-  active token protection**.
-- Isolated-account mode adds a Windows user/session/ACL boundary.
+- Version 0.7 requires a Windows user/session/ACL boundary for every launch.
+  WTS verifies the interactive session owner, including rejection of `runas` on
+  another user's desktop. There is no ordinary-user launch fallback.
+- The setup EXE installs the account-isolation launcher. It is unsigned and
+  requires interactive UAC, a new account password and Windows sign-in.
 - GuardCore is a separate unsigned laboratory driver. Administrator unload,
   kernel compromise, pre-existing mappings, raw-volume/offline reads and code
   executing inside trusted Discord are outside its demonstrated boundary.

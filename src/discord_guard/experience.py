@@ -1,9 +1,7 @@
 """One primary action, without confusing an inspection with live protection."""
 
 from dataclasses import dataclass
-from pathlib import Path
-
-from .core import acl_is_safe, decide, discord_signature_is_valid
+from .core import acl_is_safe, decide, discord_signature_is_valid, policy_is_valid
 from . import windows
 
 
@@ -36,6 +34,34 @@ def installed_checks(snapshot: dict) -> tuple[tuple[str, bool], ...]:
 def present(snapshot: dict) -> Dashboard:
     policy = snapshot.get("policy") or {}
     decision = decide(snapshot, require_stopped=False)
+    if snapshot.get("windows") is not True:
+        return Dashboard("blocked", "WINDOWS GEREKLİ", "Windows doğrulanamadı.",
+            "Korumalı açılış için Windows 10/11 gerekiyor.", "Yeniden kontrol et",
+            "Güvenlik koşulları okunamadığında Discord başlatılmaz.", False)
+    if not policy:
+        residue = any(snapshot.get("system_acls", {}).get(key, {}).get("exists") is True
+                      for key in ("program_dir", "data_dir", "policy")) or bool(snapshot.get("account"))
+        if residue:
+            return Dashboard("blocked", "KURULUM DENETLENMELİ", "Kurulum tamamlanmamış.",
+                "Mevcut hesap veya dosyalar var; geçerli kurulum politikası bulunamadı.",
+                "Yeniden kontrol et", "Mevcut hesabın üzerine yazılmaz. Ayrıntılardaki kurulum denetimlerini incele.", False)
+        return Dashboard("setup", "KURULUM GEREKLİ", "Korumalı alanını kur.",
+            "Discord için ayrı Windows hesabı ve özel dosya izinleri hazırlanacak.",
+            "Tek tıkla kurulumu başlat", "Windows yönetici onayı ve yeni hesap parolası istenir.", False)
+    if not policy_is_valid(policy):
+        return Dashboard("blocked", "POLİTİKA DOĞRULANAMADI", "Kurulumu kontrol et.",
+            "Korumalı hesabın kimliği doğrulanamadı.", "Yeniden kontrol et",
+            "Geçersiz politikayla Discord başlatılmaz.", False)
+    current = snapshot.get("current", {})
+    if current.get("sid") != policy["guard_sid"] or current.get("session_sid") != policy["guard_sid"]:
+        required = {"windows", "installed", "policy_acl", "account", "switching"}
+        failed = [check for check in decision.checks if check.key in required and not check.passed]
+        if not failed:
+            return Dashboard("switch", "KORUMALI OTURUMA GEÇ", "Alan hazır. Hesaba geç.",
+                "Discord, DiscordGuard Windows hesabının kendi masaüstünde çalışacak.",
+                "Korumalı hesaba geç", "Windows kilit ekranında DiscordGuard hesabını seç. Mevcut Discord oturumu taşınmaz.", False)
+        return Dashboard("blocked", "KURULUM DOĞRULANAMADI", "Bir kontrol tamamlanmadı.",
+            failed[0].detail, "Yeniden kontrol et", "Korumalı hesaba geçmeden önce kurulum düzeltilmeli.", False)
     if policy.get("guardcore_required") is True:
         if decision.allowed:
             return Dashboard("kernel", "DENEYSEL SÜRÜCÜ BAĞLI", "Discord’un hazır.",
@@ -48,36 +74,36 @@ def present(snapshot: dict) -> Dashboard:
         return Dashboard("isolated", "AYRI HESAP DOĞRULANDI", "Discord’un hazır.",
             "Normal Discord hesabın. Ayrı Windows kimliği ve özel oturum dosyaları.",
             "Yalıtılmış Discord’u aç", "Windows erişim sınırı hazır. Çekirdek koruması seçili değil.", True)
-    client = snapshot.get("installed_discord") or {}
-    if client.get("found") is not True:
-        return Dashboard("missing", "DISCORD BULUNAMADI", "Discord’u bulalım.",
-            "Bu Windows kullanıcısının normal Discord kurulumu henüz bulunamadı.",
-            "Yeniden kontrol et", "Discord kuruluysa bu kullanıcı hesabında bir kez açıp tekrar dene.", False)
-    checks = installed_checks(snapshot)
-    if not all(passed for _, passed in checks):
-        return Dashboard("blocked", "AÇILIŞ DOĞRULANAMADI", "Bir kontrol tamamlanmadı.",
-            "İmza, başlangıç dosyası veya Windows koruması doğrulanamadı. Discord başlatılmadı.",
-            "Yeniden kontrol et", "Eksik kontrolü Ayrıntılar ekranından görebilirsin.", False)
-    return Dashboard("checked", "CANLI KORUMA KAPALI", "Discord’un. Tek bir adım.",
-        "Yüklü Discord’u buldum. İmzasını ve başlangıç dosyasını kontrol ederek açabilirim.",
-        "Kontrol et ve Discord’u aç", "Bu açılış kontrolüdür. Token çalınmasını veya RAT’ı canlı olarak engellemez.", True)
+    preliminary = decide(snapshot, require_profile=False, require_client=False, require_stopped=False)
+    if preliminary.allowed:
+        client = snapshot.get("client") or {}
+        if client.get("found") is False:
+            return Dashboard("install", "KORUMALI HESAP HAZIR", "Resmî Discord’u kur.",
+                "Discord bu ayrı Windows hesabına indirilecek ve yayıncı imzası doğrulanacak.",
+                "Discord’u indir ve kur", "Kurulumdan sonra aynı Discord hesabınla giriş yap. İndirme resmî Discord sunucusundan yapılır.", False)
+        # Only absent profile directories may be prepared automatically. Existing
+        # insecure ACLs are never repaired implicitly or hidden by this action.
+        without_profile = decide(snapshot, require_profile=False, require_stopped=False)
+        if without_profile.allowed and any(acl.get("exists") is False and not acl.get("error")
+                                          for acl in snapshot.get("profile_acls", [])):
+            return Dashboard("prepare", "PROFİL HAZIRLANACAK", "Son kontrol kaldı.",
+                "Eksik özel profil klasörleri hazırlanıp erişim izinleri yeniden doğrulanacak.",
+                "Profili hazırla ve Discord’u aç", "Doğrulama başarısızsa Discord açılmaz.", True)
+    failed = next(check for check in decision.checks if not check.passed)
+    return Dashboard("blocked", "AÇILIŞ DOĞRULANAMADI", "Bir kontrol tamamlanmadı.",
+        failed.detail, "Yeniden kontrol et", "Eksik kontrolü Ayrıntılar ekranından görebilirsin. Korumalı açılış durduruldu.", False)
 
 
-def one_click(paths=None, *, inspector=None, popen=None) -> dict:
+def one_click(paths=None, *, inspector=None, popen=None, enable_startup=False) -> dict:
     paths = paths or windows.Paths.current()
     inspector = inspector or windows.inspect
     snapshot = inspector(paths)
     state = present(snapshot)
     if not state.launchable:
         return {"snapshot": snapshot, "opened": False, "state": state}
-    if state.mode in ("kernel", "isolated"):
-        if state.mode == "isolated" and snapshot.get("client_running") is True:
-            return {"snapshot": snapshot, "opened": True, "state": state}
-        windows.launch(paths, inspector=inspector, popen=popen)
-    else:
-        binary = Path(snapshot["installed_discord"]["path"])
-        windows._reject_reparse_chain(binary)
-        arguments = windows.desktop_arguments(binary, paths.discord_install_root)
-        (popen or windows.subprocess.Popen)(arguments, close_fds=True, cwd=str(binary.parent),
-                                            env=windows.clean_client_environment())
+    if enable_startup:
+        windows.set_autostart(True, paths, inspector=inspector)
+    if state.mode == "isolated" and snapshot.get("client_running") is True:
+        return {"snapshot": snapshot, "opened": True, "state": state}
+    windows.launch(paths, inspector=inspector, popen=popen)
     return {"snapshot": snapshot, "opened": True, "state": state}

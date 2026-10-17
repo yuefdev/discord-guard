@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import uuid
 
 from . import __version__, startup
-from .core import acl_is_safe, decide, discord_signature_is_valid, policy_is_valid
+from .core import LOCAL_USER_SID, acl_is_safe, decide, discord_signature_is_valid, policy_is_valid
 
 
 class GuardError(RuntimeError):
@@ -117,10 +117,11 @@ def script_path(name: str) -> Path:
 
 def run_script(name: str, config: dict, *, secret_input: dict | None = None, timeout: int = 60) -> dict:
     payload = base64.b64encode(json.dumps(config).encode("utf-8")).decode("ascii")
-    source = script_path(name).read_text(encoding="utf-8")
-    # Invoke the embedded script block with an encoded, non-secret configuration.
+    source = str(script_path(name).resolve()).replace("'", "''")
+    # Encode only a small bootstrap, not the entire script: CreateProcess has a
+    # 32,767-character command-line limit. Secret input remains on stdin.
     command = ("[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
-               f"& {{\n{source}\n}} -ConfigBase64 '{payload}'")
+               f"& ([scriptblock]::Create([IO.File]::ReadAllText('{source}'))) -ConfigBase64 '{payload}'")
     encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
     try:
         result = subprocess.run(
@@ -131,6 +132,8 @@ def run_script(name: str, config: dict, *, secret_input: dict | None = None, tim
         )
     except subprocess.TimeoutExpired as error:
         raise GuardError("Windows işlemi zaman aşımına uğradı; Discord başlatılmadı.") from error
+    except OSError as error:
+        raise GuardError("Windows denetim işlemi başlatılamadı; Discord açılmadı.") from error
     try:
         data = json.loads(result.stdout.lstrip("\ufeff").strip())
     except (ValueError, TypeError) as error:
@@ -169,16 +172,44 @@ def is_admin() -> bool:
 def request_setup(origin_sid: str) -> None:
     if not getattr(sys, "frozen", False):
         raise GuardError("Hesap kurulumu paketlenmiş DiscordGuard.exe üzerinden yapılır.")
-    if not origin_sid.startswith("S-1-5-21-"):
+    if not LOCAL_USER_SID.fullmatch(origin_sid):
         raise GuardError("Başlangıç hesabı doğrulanamadı.")
+    # Keep the originating process (and a self-extracting installer's payload)
+    # alive until the elevated setup window exits. Never pass the password here.
+    class ShellExecuteInfo(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", wintypes.ULONG),
+                    ("hwnd", wintypes.HWND), ("lpVerb", wintypes.LPCWSTR),
+                    ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
+                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int),
+                    ("hInstApp", wintypes.HINSTANCE), ("lpIDList", ctypes.c_void_p),
+                    ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
+                    ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE),
+                    ("hProcess", wintypes.HANDLE)]
+
     shell = ctypes.WinDLL("shell32", use_last_error=True)
-    shell.ShellExecuteW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,
-                                  wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
-    shell.ShellExecuteW.restype = wintypes.HINSTANCE
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    shell.ShellExecuteExW.argtypes = [ctypes.POINTER(ShellExecuteInfo)]
+    shell.ShellExecuteExW.restype = wintypes.BOOL
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     arguments = subprocess.list2cmdline(["--setup", "--origin-sid", origin_sid])
-    result = shell.ShellExecuteW(None, "runas", sys.executable, arguments, None, 1)
-    if not result or int(result) <= 32:
+    info = ShellExecuteInfo()
+    info.cbSize, info.fMask = ctypes.sizeof(info), 0x40  # SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb, info.lpFile, info.lpParameters, info.nShow = "runas", sys.executable, arguments, 1
+    if not shell.ShellExecuteExW(ctypes.byref(info)):
         raise GuardError("Yönetici izni verilmedi; kurulum başlatılmadı.")
+    if not info.hProcess:
+        raise GuardError("Kurulum işleminin tamamlanması izlenemedi. Kurulum penceresini kontrol edin.")
+    try:
+        if kernel.WaitForSingleObject(info.hProcess, 0xFFFFFFFF) != 0:
+            raise GuardError("Kurulum işleminin sonucu doğrulanamadı.")
+        code = wintypes.DWORD()
+        if not kernel.GetExitCodeProcess(info.hProcess, ctypes.byref(code)) or code.value != 0:
+            raise GuardError("Kurulum tamamlanmadı. Kontrolleri yenileyip tekrar deneyin.")
+    finally:
+        kernel.CloseHandle(info.hProcess)
 
 
 def provision(password: str, origin_sid: str, paths: Paths | None = None) -> dict:
@@ -191,6 +222,9 @@ def provision(password: str, origin_sid: str, paths: Paths | None = None) -> dic
     config.update(source_exe=sys.executable, uninstall_source=str(script_path("uninstall")))
     bundle = Path(sys.executable).parent / "_internal"
     config["source_internal"] = str(bundle) if bundle.is_dir() else None
+    config["source_legal"] = [str(Path(sys.executable).parent / name)
+                              for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "source.zip", "licences")
+                              if (Path(sys.executable).parent / name).exists()]
     secret = {"password": password, "origin_sid": origin_sid}
     try:
         return run_script("provision", config, secret_input=secret, timeout=120)

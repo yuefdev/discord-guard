@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -51,6 +53,39 @@ class ReleaseToolsTests(unittest.TestCase):
             (root / "DiscordGuard.exe").write_bytes(b"synthetic")
             with self.assertRaisesRegex(ValueError, "onedir"):
                 package.package(root, root, root / "release")
+
+    def test_installer_rejects_modified_missing_and_extra_payload_files(self):
+        bootstrap = load("setup_bootstrap")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "app").mkdir()
+            binary = root / "app" / "DiscordGuard.exe"
+            binary.write_bytes(b"fixture")
+            manifest = {"app/DiscordGuard.exe": hashlib.sha256(b"fixture").hexdigest()}
+            (root / "payload-sha256.json").write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(bootstrap.verified_payload(root), binary)
+            binary.write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                bootstrap.verified_payload(root)
+            binary.write_bytes(b"fixture")
+            extra = root / "app" / "unlisted.dll"
+            extra.write_bytes(b"fixture")
+            with self.assertRaises(ValueError):
+                bootstrap.verified_payload(root)
+            extra.unlink()
+            binary.unlink()
+            with self.assertRaises(OSError):
+                bootstrap.verified_payload(root)
+
+    def test_installer_manifest_cannot_escape_the_payload(self):
+        bootstrap = load("setup_bootstrap")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("../outside.exe", "C:/outside.exe", "/outside.exe", "app\\bad.exe"):
+                manifest = {name: "unused", "app/DiscordGuard.exe": "unused"}
+                (root / "payload-sha256.json").write_text(json.dumps(manifest), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    bootstrap.verified_payload(root)
 
 
 if __name__ == "__main__":

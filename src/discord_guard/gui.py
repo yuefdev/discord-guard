@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QFormLayout, QFrame, QGraphicsDropShadowEffect,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, experience, windows
+from .activation import SingleInstance, foreground, instance_name
 from .core import LOCAL_USER_SID, decide
 
 
@@ -121,18 +122,17 @@ class Shield(QWidget):
 
 
 class Task(QThread):
-    completed = Signal(object, object)
-
     def __init__(self, operation, parent):
         super().__init__(parent)
         self.operation = operation
+        self.value = None
+        self.error = None
 
     def run(self):
         try:
-            self.completed.emit(self.operation(), None)
+            self.value = self.operation()
         except Exception as error:
-            text = str(error) if isinstance(error, windows.GuardError) else "İşlem tamamlanamadı. Koruma durumu değiştirilmedi."
-            self.completed.emit(None, text)
+            self.error = str(error) if isinstance(error, windows.GuardError) else "İşlem tamamlanamadı. Kontrolleri yenile."
 
 
 class WorkMixin:
@@ -141,18 +141,23 @@ class WorkMixin:
             return
         for button in self.action_buttons:
             button.setEnabled(False)
-        self.task = Task(operation, self)
+        task = Task(operation, self)
+        self.task = task
 
-        def completed(value, error):
+        def completed():
+            self.task = None
             for button in self.action_buttons:
                 button.setEnabled(True)
-            if error:
-                self.set_message(error)
+            if task.error:
+                self.set_message(task.error)
             else:
-                callback(value)
+                callback(task.value)
 
-        self.task.completed.connect(completed)
-        self.task.start()
+        # The next onboarding action may start another worker immediately. Wait
+        # for actual thread completion before enabling buttons/calling back.
+        task.finished.connect(completed)
+        task.finished.connect(task.deleteLater)
+        task.start()
 
     def closeEvent(self, event):
         if getattr(self, "task", None) and self.task.isRunning():
@@ -181,12 +186,13 @@ class Metric(QFrame):
 
 
 class GuardWindow(QMainWindow, WorkMixin):
-    def __init__(self, *, auto_refresh=True):
+    def __init__(self, *, auto_refresh=True, onboard=False):
         super().__init__()
         self.setWindowTitle(f"DiscordGuard {__version__}")
         self.resize(1010, 760)
         self.setMinimumSize(920, 720)
         self.snapshot = {}
+        self.onboard = onboard
         self.setCentralWidget(Ambient())
         outer = QVBoxLayout(self.centralWidget())
         outer.setContentsMargins(38, 24, 38, 24)
@@ -220,9 +226,9 @@ class GuardWindow(QMainWindow, WorkMixin):
         badge_line.addWidget(self.badge)
         badge_line.addStretch()
         copy.addLayout(badge_line)
-        self.heading = label("Discord’un.\nTek bir adım.", "heading", wrap=True)
+        self.heading = label("Korumalı\nDiscord alanı.", "heading", wrap=True)
         copy.addWidget(self.heading)
-        self.description = label("Yüklü masaüstü uygulaman bulunuyor.\nToken okunmadan, yerel kontrollerle.", "muted", wrap=True)
+        self.description = label("Ayrı Windows oturumu ve erişim izinleri doğrulanıyor.", "muted", wrap=True)
         self.description.setMinimumHeight(52)
         copy.addWidget(self.description)
         copy.addStretch()
@@ -243,6 +249,10 @@ class GuardWindow(QMainWindow, WorkMixin):
         self.primary.setMinimumHeight(58)
         self.primary.clicked.connect(self.activate)
         layout.addWidget(self.primary)
+        self.startup_choice = QCheckBox("Bu hesapta her Windows girişinde denetimli açılışı etkinleştir")
+        self.startup_choice.setChecked(True)
+        self.startup_choice.hide()
+        layout.addWidget(self.startup_choice)
         self.note = label("Kontrol tamamlandığında yapılabilecek işlem burada görünecek.", "muted", wrap=True)
         self.note.setAlignment(Qt.AlignCenter)
         self.note.setMinimumHeight(38)
@@ -277,6 +287,7 @@ class GuardWindow(QMainWindow, WorkMixin):
         self.heading.setText(state.heading.replace(". ", ".\n", 1))
         self.description.setText(state.description)
         self.primary.setText(state.button)
+        self.startup_choice.setVisible(state.mode in ("isolated", "kernel", "prepare", "install"))
         self.note.setText(state.detail)
         client = snapshot.get("installed_discord") or snapshot.get("client") or {}
         self.discord_metric.render("Yüklü" if client.get("found") else "Bulunamadı",
@@ -288,17 +299,34 @@ class GuardWindow(QMainWindow, WorkMixin):
         live = native.get("available") is True and native.get("configured") == 1 and native.get("connected") == 1
         self.kernel_metric.render("Deneysel bağlantı" if live else "Etkin değil",
                                   "VM çalışma testi gerekli" if live else "İmzalı sürücü kurulu değil")
+        if self.onboard:
+            self.onboard = False
+            if state.mode == "setup":
+                QTimer.singleShot(0, self.setup)
 
     def activate(self):
-        self.set_message("Yüklü Discord için işlem hazırlanıyor…")
+        state = experience.present(self.snapshot)
+        if state.mode == "setup":
+            self.setup()
+            return
+        if state.mode == "switch":
+            self.switch()
+            return
+        if state.mode == "install":
+            self.install_discord()
+            return
+        if not state.launchable:
+            self.refresh()
+            return
+        self.set_message("Korumalı Discord açılışı doğrulanıyor…")
 
         def complete(result):
             self.render(result["snapshot"])
             if result["opened"]:
-                suffix = "Canlı koruma etkinleştirilmedi." if result["state"].mode == "checked" else "Denetimli açılış yapıldı."
-                self.set_message("Normal Discord açıldı. " + suffix)
+                self.set_message("Discord korumalı Windows oturumunda açıldı. Erişim sınırı Windows tarafından uygulanıyor.")
 
-        self.begin(experience.one_click, complete)
+        enable_startup = self.startup_choice.isChecked()
+        self.begin(lambda: experience.one_click(enable_startup=enable_startup), complete)
 
     def details(self):
         dialog = QDialog(self)
@@ -353,16 +381,18 @@ class GuardWindow(QMainWindow, WorkMixin):
         dialog.exec()
 
     def setup(self):
-        sid = self.snapshot.get("current", {}).get("sid", "")
-        if not LOCAL_USER_SID.fullmatch(sid):
-            self.set_message("Önce kontrolleri yenile.")
-        elif self.snapshot.get("policy"):
-            self.set_message("Kurulum mevcut. Windows giriş ekranından korumalı hesabına geç.")
-        else:
-            try:
-                windows.request_setup(sid)
-            except windows.GuardError as error:
-                self.set_message(str(error))
+        def operation():
+            snapshot = windows.inspect()
+            if experience.present(snapshot).mode != "setup":
+                return snapshot
+            sid = snapshot.get("current", {}).get("sid", "")
+            if not LOCAL_USER_SID.fullmatch(sid):
+                raise windows.GuardError("Windows hesabının kimliği doğrulanamadı.")
+            windows.request_setup(sid)
+            return windows.inspect()
+
+        self.set_message("Windows onayını ve açılan kurulum penceresini tamamla…")
+        self.begin(operation, self.render)
 
     def switch(self):
         if QMessageBox.question(self, "Windows giriş ekranı", "Windows oturumu kilitlenecek. Devam edilsin mi?") == QMessageBox.Yes:
@@ -373,7 +403,23 @@ class GuardWindow(QMainWindow, WorkMixin):
 
     def install_discord(self):
         if QMessageBox.question(self, "Discord kurulumu", "Resmî Discord kurucusu indirilsin, imzası doğrulansın ve açılsın mı?") == QMessageBox.Yes:
-            self.begin(windows.install_discord, lambda _: self.set_message("Resmî kurucu açıldı. Kurulumdan sonra kontrolleri yenile."))
+            self.set_message("Resmî Discord indiriliyor. Açılan kurulum penceresini tamamla…")
+            enable_startup = self.startup_choice.isChecked()
+
+            def operation():
+                process = windows.install_discord()
+                try:
+                    code = process.wait(timeout=300)
+                except windows.subprocess.TimeoutExpired as error:
+                    raise windows.GuardError("Discord kurucusu hâlâ açık. Kurulumu tamamlayıp Yenile’ye bas.") from error
+                if code != 0:
+                    raise windows.GuardError("Discord kurucusu başarı bildirmedi. Kontrolleri yenileyip tekrar dene.")
+                snapshot = windows.inspect()
+                if enable_startup and experience.present(snapshot).launchable:
+                    windows.set_autostart(True)
+                return snapshot
+
+            self.begin(operation, self.render)
 
     def set_autostart(self, enabled):
         self.begin(lambda: windows.set_autostart(enabled), lambda _: self.set_message(
@@ -425,18 +471,39 @@ class SetupWindow(QDialog, WorkMixin):
         self.set_message("Hesap ve özel dosya izinleri hazırlanıyor…")
 
         def complete(_):
-            self.install_button.setEnabled(False)
-            self.set_message("Kurulum tamam. Windows giriş ekranından DiscordGuard hesabına giriş yap; Başlat menüsünden uygulamayı aç.")
+            self.install_button.setText("Tamam, kurulumu bitir")
+            self.install_button.clicked.disconnect()
+            self.install_button.clicked.connect(self.accept)
+            self.set_message("Kurulum tamam. Tamam’a bas; ana ekrandaki Korumalı hesaba geç düğmesiyle DiscordGuard hesabına giriş yap. Başlat menüsünden DiscordGuard’ı aç.")
 
         self.begin(lambda: windows.provision(password, self.origin_sid), complete)
 
 
-def show(*, setup_origin_sid=None, smoke_test=False, startup_error=None, screenshot=None):
+def show(*, setup_origin_sid=None, smoke_test=False, startup_error=None, screenshot=None, onboard=False):
     application = QApplication.instance() or QApplication(sys.argv[:1])
+    application.setApplicationName("DiscordGuard")
+    application.setOrganizationName("DiscordGuard")
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DiscordGuard.Desktop")
     application.setStyleSheet(STYLE)
     application.setFont(QFont("Segoe UI", 10))
-    window = SetupWindow(setup_origin_sid) if setup_origin_sid else GuardWindow(auto_refresh=not smoke_test)
+    holder = {}
+    gate = None
+    if not smoke_test and not screenshot:
+        gate = SingleInstance(instance_name(setup=bool(setup_origin_sid), onboard=onboard),
+                              lambda: foreground(holder["window"]), application)
+        try:
+            if not gate.claim():
+                return 0
+        except windows.GuardError as error:
+            QMessageBox.warning(None, "DiscordGuard açılışı", str(error))
+            return 1
+    window = SetupWindow(setup_origin_sid) if setup_origin_sid else GuardWindow(auto_refresh=not smoke_test, onboard=onboard)
+    holder["window"] = window
     window.show()
+    if not smoke_test and not screenshot:
+        QTimer.singleShot(0, lambda: foreground(window))
     if startup_error:
         window.set_message(startup_error)
     if screenshot:
@@ -446,4 +513,8 @@ def show(*, setup_origin_sid=None, smoke_test=False, startup_error=None, screens
         QTimer.singleShot(700, capture)
     elif smoke_test:
         QTimer.singleShot(250, application.quit)
-    return application.exec()
+    try:
+        return application.exec()
+    finally:
+        if gate:
+            gate.close()

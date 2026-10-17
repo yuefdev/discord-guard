@@ -1,14 +1,14 @@
 # Açık kaynak yayın ve Windows imzası
 
-**Durum: 0.6.0 deneysel önizleme.** Kaynak kod MIT; çekirdek sürücüsü imzasız ve
-çalışma testinden geçmedi. Masaüstü uygulaması, normal modda yalnızca yüklü
-Discord’u kontrol ederek açar. Canlı RAT engelleme etkin kabul edilmez.
+**Durum: 0.7.0 deneysel önizleme.** Kaynak kod MIT; çekirdek sürücüsü imzasız ve
+çalışma testinden geçmedi. Masaüstü uygulaması yalnızca ayrı Windows hesabı,
+gerçek oturum sahibi ve erişim izinleri doğrulanınca Discord’u açar. Setup.exe
+hesap kurulumunu başlatır; genel RAT engelleme veya çekirdek koruması ilan edilmez.
 
 ## 1. GitHub deposu
 
-Kaynak yapısı, MIT lisansı, güvenlik politikası, katkı yönergesi ve CI hazır.
-Hedef depo adı ve görünürlük seçilince incelenen dosyalarla ilk commit/push yapılır.
-Önerilen ad `discord-guard`; anahtar, PFX, token, WDK, derleme ve kişisel veri
+Depo: <https://github.com/yuefdev/discord-guard>. MIT lisansı, güvenlik politikası,
+katkı yönergesi ve CI mevcut. Anahtar, PFX, token, WDK, derleme ve kişisel veri
 depoya girmez. `tools/package_release.py` yalnızca kaynak izin listesini arşivler.
 
 Depoda özel güvenlik bildirimi, ana dal koruması ve `release` environment için
@@ -108,7 +108,7 @@ bildirimleri ve tam uygulama kaynak arşivi bulunur. İlgili Qt sürümünün ka
 gelen kaynak arşivleri de lisans yükümlülüğüne uygun sunulmalıdır. WDK ve
 Discord’un kapalı kaynak istemcisi bizim paketimize konulmaz.
 
-Önizleme paketlemek için:
+Önizleme ve tek dosyalık kurulum EXE'sini paketlemek için:
 
 ```powershell
 .\build.ps1 -OutputRoot 'C:\AppBuild' -Layout onedir
@@ -117,9 +117,14 @@ python -B tools\package_release.py --app 'C:\AppBuild\dist\DiscordGuard' `
   --native 'C:\GuardCoreBuild' --output 'C:\FreshPreview'
 ```
 
+Paketleyici `DiscordGuard-0.7.0-Setup.exe` üretir ve `--smoke-test` ile hesap
+oluşturmadan açıp kapatır. Kurucu, dosya hash'lerini doğrular; yükseltilmiş kurulum
+penceresi kapanana kadar çıkarılan dosyaları tutar. UAC, yeni hesap parolası ve
+Windows/Discord girişi kullanıcı etkileşimi gerektirir. Mevcut kurulumların üzerine
+yazılmaz; yükseltme için önce belgelenmiş kaldırma akışı değerlendirilmelidir.
+
 ## Tamamlanması dışarıya bağlı olanlar
 
-- Hedef GitHub depo adı ve gerçek yayın/commit onayı.
 - Gerçek yayıncı kimliği, sertifika/anahtar erişimi ve Hardware hesabı.
 - Microsoft altitude tahsisi, InfVerif/Inf2Cat/HLK ve üretim imzası.
 - Temiz Windows VM çalışma matrisi ve ürün güncelleme/kurtarma desteği.

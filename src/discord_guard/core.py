@@ -145,9 +145,10 @@ def decide(snapshot: dict[str, Any], *, require_profile: bool = True,
         "Korumalı hesap doğrulanamadı veya yönetici yetkisine sahip.")
     current = snapshot.get("current", {})
     identity_ok = guard_sid is not None and current.get("sid") == guard_sid
-    add("identity", "Ayrı Windows oturumu", identity_ok and current.get("session_id", 0) > 0,
+    add("identity", "Ayrı Windows oturumu", identity_ok and current.get("session_id", 0) > 0
+        and current.get("session_sid") == guard_sid,
         "Korumalı hesabın kendi etkileşimli Windows oturumundasınız.",
-        "Windows giriş ekranından DiscordGuard hesabına geçin. Ana hesaptan Discord açılmayacak.")
+        "Windows giriş ekranından DiscordGuard hesabına geçin. runas veya başka kullanıcının masaüstü kabul edilmez.")
     add("elevation", "Sınırlı süreç yetkisi", current.get("elevated") is False,
         "Discord yönetici yetkisiyle çalıştırılmayacak.", "Başlatıcıyı yönetici olarak çalıştırmayın.")
     add("switching", "Kullanıcı geçişi", snapshot.get("fast_switching_disabled") is False,

@@ -10,6 +10,7 @@ submitted or approved. Its acceptance decision belongs to the provider.
 The 0.8 launcher has an unresolved Microsoft Defender detection. Application
 signing does not clear that detection, certify protection against RATs, or supply
 a Microsoft kernel-driver signature. Current releases remain experimental.
+The factual Microsoft submission draft is in [DEFENDER-REVIEW.md](DEFENDER-REVIEW.md).
 
 ## Ownership and approval
 

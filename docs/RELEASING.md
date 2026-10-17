@@ -8,6 +8,8 @@ engellendi; yanlış alarm olduğu henüz doğrulanmadı. 0.8 paketi yayımlanma
 `tools/check-defender.ps1` uygulama/kurucu çalıştırılmadan ve paketleme sırasında
 tarama yapar; tehdit veya tarama yokluğunda dağıtımı durdurur. Defender istisnası,
 kapatma veya karantinadan geri alma kullanılmaz. Ayrıntılar: `DESKTOP-SERVICE.md`.
+Microsoft incelemesi için gerçek tespit bilgileri ve başvuru metni:
+[DEFENDER-REVIEW.md](DEFENDER-REVIEW.md). Başvuru henüz gönderilmedi.
 
 ## Yayımlanan 0.7 sürümü
 

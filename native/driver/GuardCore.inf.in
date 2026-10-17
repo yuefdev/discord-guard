@@ -1,0 +1,49 @@
+; Candidate primitive minifilter package. InfVerif/Inf2Cat/HLK have not validated it.
+[Version]
+Signature="$WINDOWS NT$"
+Class="ActivityMonitor"
+ClassGuid={b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider=%Publisher%
+DriverVer=@DATE@,0.6.0.0
+CatalogFile=GuardCore.cat
+PnpLockdown=1
+
+[DestinationDirs]
+GuardCore.Files=13
+
+[DefaultInstall.NTamd64]
+CopyFiles=GuardCore.Files
+
+[DefaultInstall.NTamd64.Services]
+AddService=GuardCore,,GuardCore.Service
+
+[GuardCore.Service]
+DisplayName=%ServiceName%
+Description=%Description%
+ServiceBinary=%13%\GuardCore.sys
+ServiceType=2
+StartType=3
+ErrorControl=1
+LoadOrderGroup="FSFilter Activity Monitor"
+Dependencies=FltMgr
+AddReg=GuardCore.Registry
+
+[GuardCore.Registry]
+HKR,"Parameters\Instances","DefaultInstance",0x00000000,"GuardCore"
+HKR,"Parameters\Instances\GuardCore","Altitude",0x00000000,"@ALTITUDE@"
+HKR,"Parameters\Instances\GuardCore","Flags",0x00010001,0
+
+[GuardCore.Files]
+GuardCore.sys
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+GuardCore.sys=1
+
+[Strings]
+Publisher="@PROVIDER@"
+ServiceName="GuardCore"
+Description="Experimental DiscordGuard minifilter"
+DiskName="GuardCore installation files"
